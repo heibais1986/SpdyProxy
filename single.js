@@ -27,7 +27,6 @@ class ConfigManager {
     DEBUG_MODE: false,
     PROXY_STRATEGY: "socket",
     FALLBACK_PROXY_STRATEGY: "fetch",
-    PROXY_IP: "",//暂未实现，不必填写，后续可能废弃
     SOCKS5_ADDRESS: "",
     THIRD_PARTY_PROXY_URL: "",
     CLOUD_PROVIDER_URL: "",
