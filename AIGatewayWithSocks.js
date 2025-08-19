@@ -2,7 +2,7 @@ import { connect } from "cloudflare:sockets";
 
 // 全局配置
 const DEFAULT_CONFIG = {
-  AUTH_TOKEN: "test", // 默认鉴权令牌,必须更改
+  AUTH_TOKEN: "defaulttoken", // 默认鉴权令牌,必须更改
   DEFAULT_DST_URL: "https://httpbin.org/get",
   DEBUG_MODE: true,
   ENABLE_UA_RANDOMIZATION: true,
@@ -28,13 +28,12 @@ const HOST_REQUEST_CONFIG = new Map([
 
 // URL预设映射 (简化路径映射到完整URL)
 const URL_PRESETS = new Map([
-  ["gemini", "https://generativelanguage.googleapis.com/v1beta"],
-  ["openai", "https://api.openai.com/v1"],
-  ["anthropic", "https://api.anthropic.com/v1"],
-  ["cohere", "https://api.cohere.ai/v1"],
+  ["gemini", "https://generativelanguage.googleapis.com"],
+  ["openai", "https://api.openai.com"],
+  ["anthropic", "https://api.anthropic.com"],
+  ["cohere", "https://api.cohere.ai"],
   ["httpbin", "https://httpbin.org"],
 ]);
-
 let CONFIG = { ...DEFAULT_CONFIG };
 
 function updateConfigFromEnv(env) {
