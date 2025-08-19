@@ -1,20 +1,44 @@
+
 import { connect } from "cloudflare:sockets";
-/**
- * AI Gateway with Proxy IP Fallback 
- * 功能：随机UA，随机Accept-Language，dns解析，主连接使用socket直连，fallback使用cf反代ip（采取SNI PROXY的方式）
- * SNI PROXY：以原始域名作为SNI 进行TLS握手，但将IP地址改为ProxyIP
- * 轮询proxyIP的方案：使用dns解析域名的A记录，随机选取一个IP作为ProxyIP
- * 暂时无法使用，遇到了暂时无法解决的问题（分离 TCP 连接和 TLS 握手失败，未找到长期稳定可以获取，更新ProxyIP的方法）
- */
+
 // 全局配置
 const DEFAULT_CONFIG = {
-  AUTH_TOKEN: "defaulttoken",
+  AUTH_TOKEN: "defaulttoken", // 默认鉴权令牌,必须更改
   DEFAULT_DST_URL: "https://httpbin.org/get",
   DEBUG_MODE: true,
   ENABLE_UA_RANDOMIZATION: true,
   ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION: false, // 随机 Accept-Language
-  PROXY_DOMAINS: [""], // CF反代IP域名列表
+  ENABLE_SOCKS5_FALLBACK: true, // 启用 Socks5 fallback
 };
+
+// Socks5 API
+const SOCKS5_API_URLS = [
+  "https://api1.example.com/socks5",
+  "https://api2.example.com/socks5", 
+  "https://api3.example.com/socks5"
+];
+
+// 主机请求方式配置集合 (key: host, value: 'nativeFetch' | 'socks5')
+const HOST_REQUEST_CONFIG = new Map([
+  // 模板示例 - 替换为实际的host配置
+  ["api.openai.com", "socks5"],
+  ["generativelanguage.googleapis.com", "nativeFetch"],
+  ["api.anthropic.com", "socks5"],
+  ["api.cohere.ai", "nativeFetch"],
+  ["httpbin.org", "nativeFetch"],
+  // 添加更多主机配置...
+]);
+
+// URL预设映射 (简化路径映射到完整URL)
+const URL_PRESETS = new Map([
+  // 模板示例 - 替换worker地址为实际地址
+  ["gemini", "https://generativelanguage.googleapis.com/v1beta"],
+  ["openai", "https://api.openai.com/v1"],
+  ["anthropic", "https://api.anthropic.com/v1"],
+  ["cohere", "https://api.cohere.ai/v1"],
+  ["httpbin", "https://httpbin.org"],
+  // 添加更多预设映射...
+]);
 
 // 使用默认配置创建可更新的副本
 let CONFIG = { ...DEFAULT_CONFIG };
@@ -28,8 +52,6 @@ function updateConfigFromEnv(env) {
         CONFIG[key] = env[key] === 'true';
       } else if (typeof CONFIG[key] === 'number') {
         CONFIG[key] = Number(env[key]);
-      } else if (key === 'PROXY_DOMAINS' && typeof env[key] === 'string') {
-        CONFIG[key] = env[key].split(',').map(d => d.trim()).filter(Boolean);
       } else {
         CONFIG[key] = env[key];
       }
@@ -41,7 +63,7 @@ function updateConfigFromEnv(env) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// 忽略的请求头正则
+// 忽略的请求头正则 - 移除 referer 和 referrer 过滤
 const HEADER_FILTER_RE = /^(host|cf-|cdn-|referer|referrer)/i;
 
 // 日志函数
@@ -49,6 +71,34 @@ let log = () => {};
 
 // 管理器实例
 let userAgentManager;
+
+/**
+ * 根据主机名获取请求方式
+ * @param {string} hostname 主机名
+ * @returns {string} 'nativeFetch' | 'socks5'
+ */
+function getRequestMethodForHost(hostname) {
+  // 如果配置中有该主机，返回配置的方式
+  if (HOST_REQUEST_CONFIG.has(hostname)) {
+    return HOST_REQUEST_CONFIG.get(hostname);
+  }
+  // 默认使用 nativeFetch
+  return 'nativeFetch';
+}
+
+/**
+ * 解析预设URL或完整URL
+ * @param {string} urlOrPreset URL预设名称或完整URL
+ * @returns {string} 完整的URL
+ */
+function resolveUrl(urlOrPreset) {
+  // 如果是预设名称，返回映射的URL
+  if (URL_PRESETS.has(urlOrPreset)) {
+    return URL_PRESETS.get(urlOrPreset);
+  }
+  // 否则返回原始输入（应该是完整URL）
+  return urlOrPreset;
+}
 
 /**
  * User-Agent 管理器，存储一些常用的UA供随机化使用
@@ -119,10 +169,301 @@ class UserAgentManager {
   }
 }
 
+/**
+ * 解析 Socks5 代理
+ * 支持格式：
+ * - socks5://user:password@host:port
+ * - socks5://@host:port
+ * - user:password@host:port  
+ * - host:port
+ * @returns {Promise<Object>} 解析后的 Socks5 配置
+ */
+async function parseSocks5Proxy() {
+  try {
+    // 随机选择一个 API
+    const randomApiUrl = SOCKS5_API_URLS[Math.floor(Math.random() * SOCKS5_API_URLS.length)];
+    log('尝试从 API 获取 Socks5 代理:', randomApiUrl);
+    
+    // 获取 Socks5 代理信息
+    const response = await fetch(randomApiUrl, { method: 'GET' });
+    if (!response.ok) {
+      throw new Error(`获取 Socks5 代理失败: ${response.status}`);
+    }
+    
+    const proxyData = await response.text();
+    if (!proxyData || proxyData.trim() === '') {
+      throw new Error('未获取到 Socks5 代理数据');
+    }
+    
+    // 处理多个代理的情况
+    const proxyList = proxyData.trim().split('\n').filter(line => line.trim());
+    if (proxyList.length === 0) {
+      throw new Error('代理列表为空');
+    }
+    
+    log(`获取到 ${proxyList.length} 个代理，随机选择一个`);
+    
+    // 随机选择一个代理
+    const selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+    log('选择的代理:', selectedProxy);
+    
+    // 解析代理格式
+    let proxyStr = selectedProxy.trim();
+    let username = null;
+    let password = null;
+    let host = null;
+    let port = null;
+    
+    // 移除 socks5:// 前缀
+    if (proxyStr.startsWith('socks5://')) {
+      proxyStr = proxyStr.substring(9);
+    }
+    
+    // 检查是否包含认证信息
+    if (proxyStr.includes('@')) {
+      const parts = proxyStr.split('@');
+      if (parts.length !== 2) {
+        throw new Error(`代理格式错误: ${selectedProxy}`);
+      }
+      
+      const [authPart, addressPart] = parts;
+      
+      // 解析认证部分 (可能为空，如 socks5://@host:port)
+      if (authPart.trim() !== '') {
+        const authSplit = authPart.split(':');
+        if (authSplit.length === 2) {
+          username = authSplit[0];
+          password = authSplit[1];
+        }
+      }
+      
+      // 解析地址部分
+      const addressSplit = addressPart.split(':');
+      if (addressSplit.length !== 2) {
+        throw new Error(`代理地址格式错误: ${addressPart}`);
+      }
+      host = addressSplit[0];
+      port = parseInt(addressSplit[1]);
+      
+    } else {
+      // 没有认证信息，直接是 host:port 格式
+      const addressSplit = proxyStr.split(':');
+      if (addressSplit.length !== 2) {
+        throw new Error(`代理格式错误: ${selectedProxy}`);
+      }
+      host = addressSplit[0];
+      port = parseInt(addressSplit[1]);
+    }
+    
+    if (!host || !port || isNaN(port)) {
+      throw new Error(`代理格式不完整: ${selectedProxy}`);
+    }
+    
+    const proxyConfig = {
+      host,
+      port,
+      username,
+      password,
+      hasAuth: !!(username && password)
+    };
+    
+    log('解析的代理配置:', `${host}:${port} (认证: ${proxyConfig.hasAuth})`);
+    return proxyConfig;
+    
+  } catch (error) {
+    log('解析 Socks5 代理失败:', error.message);
+    throw new Error(`解析 Socks5 代理失败: ${error.message}`);
+  }
+}
+
+/**
+ * 执行 Socks5 握手协议
+ */
+async function performSocks5Handshake(reader, writer, targetHost, targetPort, username, password) {
+  try {
+    log(`开始 Socks5 握手: 目标 ${targetHost}:${targetPort}`);
+    
+    // 认证方法协商
+    const hasAuth = username && password;
+    const authMethods = hasAuth ? 
+      new Uint8Array([0x05, 0x01, 0x02]) :  // SOCKS5, 1个方法, 用户名密码认证
+      new Uint8Array([0x05, 0x01, 0x00]);   // SOCKS5, 1个方法, 无认证
+        
+    await writer.write(authMethods);
+    log('发送认证方法协商');
+    
+    const authResult = await reader.read();
+    if (authResult.done || authResult.value.length < 2) {
+      throw new Error('Socks5 认证方法协商响应格式错误');
+    }
+    const authResponse = authResult.value.slice(0, 2);
+    
+    if (authResponse[0] !== 0x05) {
+      throw new Error('Socks5 版本不匹配');
+    }
+    
+    const selectedMethod = authResponse[1];
+    log('服务器选择的认证方法:', selectedMethod);
+    
+    if (hasAuth && selectedMethod !== 0x02) {
+      throw new Error('Socks5 服务器不支持用户名密码认证');
+    } else if (!hasAuth && selectedMethod !== 0x00) {
+      throw new Error('Socks5 服务器需要认证但未提供认证信息');
+    }
+    
+    // 用户名密码认证
+    if (hasAuth && selectedMethod === 0x02) {
+      log('执行用户名密码认证');
+      const usernameBytes = encoder.encode(username);
+      const passwordBytes = encoder.encode(password);
+      const authData = new Uint8Array(3 + usernameBytes.length + passwordBytes.length);
+      authData[0] = 0x01; // 用户名密码认证版本
+      authData[1] = usernameBytes.length;
+      authData.set(usernameBytes, 2);
+      authData[2 + usernameBytes.length] = passwordBytes.length;
+      authData.set(passwordBytes, 3 + usernameBytes.length);
+      
+      await writer.write(authData);
+      
+      const authResult2 = await reader.read();
+      if (authResult2.done || authResult2.value.length < 2) {
+        throw new Error('Socks5 认证响应格式错误');
+      }
+      
+      if (authResult2.value[1] !== 0x00) {
+        throw new Error('Socks5 用户名密码认证失败');
+      }
+      log('认证成功');
+    }
+    
+    // 连接请求
+    log('发送连接请求');
+    const hostBytes = encoder.encode(targetHost);
+    const connectRequest = new Uint8Array(7 + hostBytes.length);
+    connectRequest[0] = 0x05; // SOCKS5
+    connectRequest[1] = 0x01; // CONNECT
+    connectRequest[2] = 0x00; // 保留
+    connectRequest[3] = 0x03; // 域名类型
+    connectRequest[4] = hostBytes.length;
+    connectRequest.set(hostBytes, 5);
+    connectRequest[5 + hostBytes.length] = (targetPort >> 8) & 0xFF;
+    connectRequest[6 + hostBytes.length] = targetPort & 0xFF;
+    
+    await writer.write(connectRequest);
+    
+    const connectResult = await reader.read();
+    if (connectResult.done || connectResult.value.length < 10) {
+      throw new Error('Socks5 连接响应格式错误');
+    }
+    
+    const connectResponse = connectResult.value.slice(0, 10);
+    if (connectResponse[0] !== 0x05 || connectResponse[1] !== 0x00) {
+      const errorMessages = {
+        0x01: '服务器故障',
+        0x02: '连接不被允许',
+        0x03: '网络不可达',
+        0x04: '主机不可达',
+        0x05: '连接被拒绝',
+        0x06: 'TTL超时',
+        0x07: '不支持的命令',
+        0x08: '不支持的地址类型'
+      };
+      const errorMsg = errorMessages[connectResponse[1]] || `未知错误码: ${connectResponse[1]}`;
+      throw new Error(`Socks5 连接请求失败: ${errorMsg}`);
+    }
+    
+    log('Socks5 握手完成');
+  } catch (error) {
+    log('Socks5 握手失败:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * 使用 Socks5 进行访问
+ * @param {Request} req 请求对象
+ * @param {string} dsturl 目标URL
+ * @returns {Promise<Response>} 响应对象
+ */
+async function fetchViaSocks5(req, dsturl) {
+  const targetUrl = new URL(dsturl);
+  
+  try {
+    log('尝试通过 Socks5 代理访问:', dsturl);
+    
+    // 获取 Socks5 代理配置
+    const proxyConfig = await parseSocks5Proxy();
+    
+    // 处理请求头，去除指定的请求头
+    const cleanedHeaders = new Headers();
+    for (const [key, value] of req.headers.entries()) {
+      if (!HEADER_FILTER_RE.test(key)) {
+        cleanedHeaders.set(key, value);
+      }
+    }
+    
+    // 根据选项添加随机 UA 和语言
+    const randomUA = userAgentManager.getRandomUserAgent();
+    if (randomUA) {
+      cleanedHeaders.set("User-Agent", randomUA);
+      log('使用随机 User-Agent:', randomUA);
+    }
+    
+    if (CONFIG.ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION) {
+      const randomLang = userAgentManager.getRandomAcceptLanguage();
+      if (randomLang) {
+        cleanedHeaders.set("Accept-Language", randomLang);
+        log('使用随机 Accept-Language:', randomLang);
+      }
+    }
+    
+    cleanedHeaders.set("Host", targetUrl.hostname);
+    cleanedHeaders.set("Connection", "close");
+    
+    const targetPort = targetUrl.port || (targetUrl.protocol === "https:" ? 443 : 80);
+    
+    // 连接到 Socks5 代理服务器
+    log(`连接到 Socks5 代理: ${proxyConfig.host}:${proxyConfig.port}`);
+    const proxySocket = await createNewConnection(proxyConfig.host, proxyConfig.port, false);
+    
+    try {
+      const reader = proxySocket.readable.getReader();
+      const writer = proxySocket.writable.getWriter();
+      
+      // 执行 Socks5 握手
+      await performSocks5Handshake(reader, writer, targetUrl.hostname, targetPort, 
+                                   proxyConfig.username, proxyConfig.password);
+      
+      // 发送 HTTP 请求
+      const requestLine = `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
+        Array.from(cleanedHeaders.entries()).map(([k, v]) => `${k}: ${v}`).join("\r\n") + "\r\n\r\n";
+      
+      log("通过 Socks5 发送请求:", requestLine.split('\r\n')[0]);
+      await writer.write(encoder.encode(requestLine));
+      
+      if (req.body) {
+        for await (const chunk of req.body) {
+          await writer.write(chunk);
+        }
+      }
+      
+      writer.releaseLock();
+      return await parseResponse(reader, targetUrl.hostname, targetPort, proxySocket);
+      
+    } catch (error) {
+      if (!proxySocket.closed) proxySocket.close();
+      throw error;
+    }
+    
+  } catch (error) {
+    log('Socks5 代理请求失败:', error.message);
+    throw error;
+  }
+}
 
 // 创建新连接的辅助函数
 async function createNewConnection(hostname, port, isSecure) {
-  log(`创建新连接 ${hostname}:${port}`);
+  log(`创建新连接 ${hostname}:${port} (安全: ${isSecure})`);
 
   return await connect(
     { hostname, port: Number(port) },
@@ -132,7 +473,6 @@ async function createNewConnection(hostname, port, isSecure) {
     }
   );
 }
-
 
 // 初始化管理器
 function initializeManagers() {
@@ -335,7 +675,6 @@ async function parseResponse(reader, targetHost, targetPort, socket) {
   }
 }
 
-
 /**
  * 为给定的域名构建一个DNS查询消息。
  * @param {string} domain 要查询的域名。
@@ -344,11 +683,11 @@ async function parseResponse(reader, targetHost, targetPort, socket) {
 function buildDnsQuery(domain) {
   const header = new Uint8Array([
     Math.floor(Math.random() * 256), Math.floor(Math.random() * 256), // 事务ID
-    0x01, 0x00, 
-    0x00, 0x01, 
-    0x00, 0x00, 
-    0x00, 0x00, 
-    0x00, 0x00, 
+    0x01, 0x00, // 标志: 标准查询
+    0x00, 0x01, // 问题数: 1
+    0x00, 0x00, // 回答数: 0
+    0x00, 0x00, // 权威记录数: 0
+    0x00, 0x00, // 附加记录数: 0
   ]);
 
   const labels = domain.split('.');
@@ -394,8 +733,7 @@ function parseDnsResponse(buffer) {
 
     // 跳过名称（通常是指针，占2字节）
     offset += 2;
-    
-    const type = dataView.getUint16(offset);
+        const type = dataView.getUint16(offset);
     offset += 2; // 跳过类型
     offset += 6; // 跳过类和TTL
     const rdLength = dataView.getUint16(offset);
@@ -442,43 +780,10 @@ async function resolveDomainRandomIP(domain) {
 }
 
 /**
- * 辅助函数，通过socket发送HTTP请求
- * @param {string} hostname - 目标主机名或IP
- * @param {number} port - 目标端口
- * @param {boolean} isSecure - 是否使用TLS
- * @param {Request} req - 原始请求对象
- * @param {Headers} headers - 清理和修改后的请求头
- * @param {URL} targetUrl - 目标URL对象
- * @returns {Promise<Response>}
- */
-async function sendRequestViaSocket(hostname, port, isSecure, req, headers, targetUrl) {
-  const socket = await createNewConnection(hostname, port, isSecure);
-  try {
-    const writer = socket.writable.getWriter();
-    const requestLine = `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
-      Array.from(headers.entries()).map(([k, v]) => `${k}: ${v}`).join("\r\n") + "\r\n\r\n";
-    
-    log(`通过 socket 发送请求到 ${hostname}:${port}`);
-    await writer.write(encoder.encode(requestLine));
-    
-    if (req.body) {
-      for await (const chunk of req.body) {
-        await writer.write(chunk);
-      }
-    }
-    writer.releaseLock();
-    return await parseResponse(socket.readable.getReader(), hostname, port, socket);
-  } catch (error) {
-    if (!socket.closed) {
-      socket.close();
-    }
-    // 重新抛出错误，让调用者处理
-    throw error;
-  }
-}
-
-/**
- * 原生HTTP请求
+ * HTTP请求 (支持路由判断)
+ * @param {Request} req 请求对象
+ * @param {string} dstUrl 目标URL
+ * @returns {Promise<Response>} 响应对象
  */
 async function nativeFetch(req, dstUrl) {
   // 清理请求头和应用随机化
@@ -502,48 +807,82 @@ async function nativeFetch(req, dstUrl) {
   }
 
   const targetUrl = new URL(dstUrl);
-  const port = targetUrl.port || (targetUrl.protocol === "https:" ? 443 : 80);
-  const isSecure = targetUrl.protocol === "https:";
 
-  // 设置主机头
-  cleanedHeaders.set("Host", targetUrl.hostname);
-  cleanedHeaders.set("Connection", "close");
-
-  // 克隆请求
-  const reqForFallback = req.clone();
-
+  // HTTP（S）连接
   try {
-    // 尝试直接连接
-    log(`尝试直接连接到 ${targetUrl.hostname}:${port}`);
-    return await sendRequestViaSocket(targetUrl.hostname, port, isSecure, req, cleanedHeaders, targetUrl);
-  } catch (error) {
-    log('直接 socket 连接失败，尝试 Fallback:', error.message);
+    // socket请求逻辑
+    cleanedHeaders.set("Host", targetUrl.hostname);
+    cleanedHeaders.set("Connection", "close");
+    const port = targetUrl.port || (targetUrl.protocol === "https:" ? 443 : 80);
+    const socket = await createNewConnection(targetUrl.hostname, port, targetUrl.protocol === "https:");
     
-    //Fallback 逻辑
-    if (CONFIG.PROXY_DOMAINS && CONFIG.PROXY_DOMAINS.length > 0) {
-      const randomDomain = CONFIG.PROXY_DOMAINS[Math.floor(Math.random() * CONFIG.PROXY_DOMAINS.length)];
-      const proxyIP = await resolveDomainRandomIP(randomDomain);
-
-      if (proxyIP) {
-        log(`使用代理IP ${proxyIP} (来自 ${randomDomain}) 进行 Fallback 连接`);
-        try {
-          // 使用克隆的请求进行 fallback
-          return await sendRequestViaSocket(proxyIP, port, isSecure, reqForFallback, cleanedHeaders, targetUrl);
-        } catch (proxyError) {
-          log('ProxyIP连接失败:', proxyError.message);
-          // 抛出原始错误以保持一致性
-          throw error;
+    try {
+      const writer = socket.writable.getWriter();
+      const requestLine = `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
+        Array.from(cleanedHeaders.entries()).map(([k, v]) => `${k}: ${v}`).join("\r\n") + "\r\n\r\n";
+      log("发送直连请求", requestLine.split('\r\n')[0]);
+      await writer.write(encoder.encode(requestLine));
+      
+      if (req.body) {
+        for await (const chunk of req.body) {
+          await writer.write(chunk);
         }
-      } else {
-        log(`无法为 ${randomDomain} 解析IP，Fallback 失败`);
       }
+      
+      writer.releaseLock();
+      return await parseResponse(socket.readable.getReader(), targetUrl.hostname, port, socket);
+      
+    } catch (error) {
+      if (!socket.closed) socket.close();
+      throw error;
     }
     
-    // 如果没有 fallback 选项或 fallback 失败，重新抛出原始错误
-    throw error;
+  } catch (error) {
+    log('直连失败，尝试 Socks5 Fallback:', error.message);
+    
+    // 检查是否启用 Socks5 fallback
+    if (CONFIG.ENABLE_SOCKS5_FALLBACK) {
+      try {
+        // 使用 Socks5 作为 fallback
+        return await fetchViaSocks5(req, dstUrl);
+      } catch (socks5Error) {
+        log('Socks5 Fallback 也失败了:', socks5Error.message);
+        throw socks5Error;
+      }
+    } else {
+      // 如果没有启用 Socks5 fallback，直接抛出原始错误
+      throw error;
+    }
   }
 }
 
+/**
+ * 智能路由请求处理函数
+ * @param {Request} req 请求对象
+ * @param {string} dstUrl 目标URL
+ * @returns {Promise<Response>} 响应对象
+ */
+async function smartFetch(req, dstUrl) {
+  const targetUrl = new URL(dstUrl);
+  const hostname = targetUrl.hostname;
+  
+  // 获取该主机名的请求方式配置
+  const requestMethod = getRequestMethodForHost(hostname);
+  log(`主机 ${hostname} 使用请求方式: ${requestMethod}`);
+  
+  try {
+    if (requestMethod === 'socks5') {
+      // 直接使用 Socks5
+      return await fetchViaSocks5(req, dstUrl);
+    } else {
+      // 使用 nativeFetch (包含 fallback 逻辑)
+      return await nativeFetch(req, dstUrl);
+    }
+  } catch (error) {
+    log(`智能路由请求失败 (${requestMethod}):`, error.message);
+    throw error;
+  }
+}
 
 /**
  * 请求处理入口
@@ -571,39 +910,55 @@ async function handleRequest(req, env) {
     if (pathSegments.length === 0) {
       log("无路径请求，转发至默认URL", CONFIG.DEFAULT_DST_URL);
       const dstUrl = CONFIG.DEFAULT_DST_URL + url.search;
-      return await nativeFetch(req, dstUrl);
+      return await smartFetch(req, dstUrl);
     }
+
+    const authToken = pathSegments[0];
+    // 检查是否使用了默认的AUTH_TOKEN
     if (authToken === "defaulttoken") {
       const msg = "请修改默认AUTH_TOKEN，建议随机字符串10位以上";
       log(msg);
       return new Response(msg, { status: 401 });
     }
-
-    const authToken = pathSegments[0];
+    
     const hasTargetUrl = pathSegments.length >= 2;
 
     // 如果鉴权令牌不匹配或缺少目标URL
     if (authToken !== CONFIG.AUTH_TOKEN || !hasTargetUrl) {
-      const msg = "Invalid path. Expected `/{authtoken}/{target_url}`. please check authentictoken or targeturl";
+      const msg = "Invalid path. Expected `/{authtoken}/{target_url}` or `/{authtoken}/{preset_name}`. please check authentictoken or targeturl";
       log(msg, { authToken, hasTargetUrl });
       return new Response(msg, { status: 400 });
     }
 
-    // 提取目标URL
+    // 提取目标URL或预设名称
     const authtokenPrefix = `/${authToken}/`;
-    let targetUrl = url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length);
-    targetUrl = decodeURIComponent(targetUrl);
+    let targetUrlOrPreset = url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length);
+    targetUrlOrPreset = decodeURIComponent(targetUrlOrPreset);
 
-    // 验证URL协议 (http/https)
-    if (!/^https?:\/\//i.test(targetUrl)) {
-      const msg = "Invalid target URL. Protocol (http/https) is required.";
-      log(msg, { targetUrl });
-      return new Response(msg, { status: 400 });
+    // 解析URL预设或直接使用完整URL
+    let resolvedUrl = resolveUrl(targetUrlOrPreset);
+    
+    // 如果是预设名称，需要添加后续路径
+    if (URL_PRESETS.has(targetUrlOrPreset)) {
+      // 获取预设后的剩余路径
+      const presetPath = `/${authToken}/${targetUrlOrPreset}`;
+      const remainingPath = url.pathname.substring(presetPath.length);
+      if (remainingPath) {
+        resolvedUrl += remainingPath;
+      }
+      log(`使用URL预设: ${targetUrlOrPreset} -> ${resolvedUrl}`);
+    } else {
+      // 验证URL协议 (http/https)
+      if (!/^https?:\/\//i.test(resolvedUrl)) {
+        const msg = "Invalid target URL. Protocol (http/https) is required.";
+        log(msg, { targetUrl: resolvedUrl });
+        return new Response(msg, { status: 400 });
+      }
     }
 
-    const dstUrl = targetUrl + url.search;
+    const dstUrl = resolvedUrl + url.search;
     log("目标URL", dstUrl);
-    return await nativeFetch(req, dstUrl);
+    return await smartFetch(req, dstUrl);
 
   } catch (error) {
     log("请求处理失败", error);
