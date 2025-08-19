@@ -449,16 +449,25 @@ async function handleRequest(req, env) {
         if (authToken !== CONFIG.AUTH_TOKEN || pathSegments.length < 2) {
             return new Response("Invalid path. Expected `/{authtoken}/{target_url}` or `/{preset}`.", { status: 400 });
         }
-        const authtokenPrefix = `/${authToken}/`;
-        let targetUrlOrPreset = decodeURIComponent(url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length));
-        let resolvedUrl = resolveUrl(targetUrlOrPreset);
-        if (URL_PRESETS.has(targetUrlOrPreset)) {
-            const presetPath = `/${authToken}/${targetUrlOrPreset}`;
-            const remainingPath = url.pathname.substring(presetPath.length);
-            if (remainingPath) resolvedUrl += remainingPath;
-        } else if (!/^https?:\/\//i.test(resolvedUrl)) {
-            return new Response("Invalid target URL. Protocol (http/https) is required.", { status: 400 });
+        
+        const presetCandidate = pathSegments[1];
+        let resolvedUrl;
+
+        if (URL_PRESETS.has(presetCandidate)) {
+            resolvedUrl = URL_PRESETS.get(presetCandidate);
+            const remainingPath = pathSegments.slice(2).join('/');
+            if (remainingPath) {
+                resolvedUrl += '/' + remainingPath;
+            }
+        } else {
+            const authtokenPrefix = `/${authToken}/`;
+            let targetUrl = decodeURIComponent(url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length));
+            resolvedUrl = resolveUrl(targetUrl); // resolveUrl will just return targetUrl if not in presets
+            if (!/^https?:\/\//i.test(resolvedUrl)) {
+                 return new Response("Invalid target URL. Protocol (http/https) is required.", { status: 400 });
+            }
         }
+
         const dstUrl = resolvedUrl + url.search;
         log("目标URL", dstUrl);
         return await smartFetchWithRetry(req, dstUrl);

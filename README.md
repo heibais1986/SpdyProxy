@@ -116,7 +116,7 @@ Cloudflare Workers 的 `fetch` API 是一个功能强大的工具，可以轻松
 
 `HOST_REQUEST_CONFIG`：通过HOST进行分流，nativeFetch表示使用socket手动实现的http请求，失败了会自动用socks5回退，socks5表示直接用socks5进行代理请求，适用于使用了cloudflare的网站，避免重试，提升性能。
 
-`URL_PRESETS`：URL路径映射，例如`"gemini", "https://generativelanguage.googleapis.com"` 相当于把https://your-worker.workers.dev/your-token/gemini映射到https://generativelanguage.googleapis.com，请求 https://your-worker.workers.dev/your-token/gemini 相当于请求https://your-worker.workers.dev/your-token/https://generativelanguage.googleapis.com
+`URL_PRESETS`：URL路径映射，例如`"gemini", "https://generativelanguage.googleapis.com"` 相当于把`https://your-worker.workers.dev/your-token/gemini` 映射到 `https://generativelanguage.googleapis.com` ; 请求` https://your-worker.workers.dev/your-token/gemini `相当于请求`https://your-worker.workers.dev/your-token/https://generativelanguage.googleapis.com`
 
 ### single.js 专属配置
 
@@ -130,8 +130,9 @@ Cloudflare Workers 的 `fetch` API 是一个功能强大的工具，可以轻松
 | `DOH_SERVER_HOSTNAME`     | `"dns.google"` | DoH 服务器的主机名。                                         |
 | ...                       | ...            | (更多 DNS 相关配置请参考 `single.js` 代码)                   |
 
-
 ## 使用方法
+
+
 
 ### AIGateway (AI 代理优化版)
 
