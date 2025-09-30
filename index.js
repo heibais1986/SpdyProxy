@@ -1,8 +1,8 @@
 import { ShadowProxy } from './src/main.js';
 
 /**
- * ShadowProxy启动器
- * 为Cloudflare Workers导出fetch事件处理程序
+ * ShadowProxy Başlatıcı
+ * Cloudflare Workers için fetch olay işleyicisini dışa aktarır
  */
 export default {
   async fetch(request, env, ctx) {

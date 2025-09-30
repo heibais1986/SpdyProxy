@@ -1,31 +1,31 @@
 import { BaseProxy } from './base.js';
 
 /**
- * 第三方代理类
- * 使用第三方代理服务进行连接
+ * Üçüncü Taraf Proxy Sınıfı
+ * Bağlantı için üçüncü taraf proxy hizmetlerini kullanır
  */
 export class ThirdPartyProxy extends BaseProxy {
   /**
-   * 构造函数
-   * @param {object} config - 配置对象
+   * Kurucu
+   * @param {object} config - Yapılandırma nesnesi
    */
   constructor(config) {
     super(config);
   }
 
   /**
-   * 连接目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * Hedef sunucuya bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connect(req, dstUrl) {
-    // 检查请求是否为WebSocket请求
+    // İsteğin bir WebSocket isteği olup olmadığını kontrol et
     const upgradeHeader = req.headers.get("Upgrade")?.toLowerCase();
     const isWebSocket = upgradeHeader === "websocket";
     
     if (isWebSocket) {
-      // 第三方代理可能不支持WebSocket，返回错误
+      // Üçüncü taraf proxy'si WebSocket'i desteklemeyebilir, hata döndür
       return new Response("Third party proxy may not support WebSocket", { status: 400 });
     } else {
       return await this.connectHttp(req, dstUrl);
@@ -33,10 +33,10 @@ export class ThirdPartyProxy extends BaseProxy {
   }
 
   /**
-   * 连接HTTP目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * HTTP hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttp(req, dstUrl) {
     const thirdPartyProxyUrl = this.config.THIRD_PARTY_PROXY_URL;
@@ -47,12 +47,12 @@ export class ThirdPartyProxy extends BaseProxy {
     const proxyUrlObj = new URL(thirdPartyProxyUrl);
     proxyUrlObj.searchParams.set('target', dstUrl);
 
-    // 创建一个新的请求，直接使用原始头部，不再过滤
+    // Doğrudan orijinal başlıkları kullanarak yeni bir istek oluştur, artık filtreleme yok
     const proxyRequest = new Request(proxyUrlObj.toString(), {
       method: req.method,
       headers: req.headers,
       body: req.body,
-      redirect: 'manual', // 防止代理本身发生重定向
+      redirect: 'manual', // Proxy'nin kendisinin yönlendirilmesini önle
     });
 
     try {
@@ -64,13 +64,13 @@ export class ThirdPartyProxy extends BaseProxy {
   }
 
   /**
-   * 连接WebSocket目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * WebSocket hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectWebSocket(req, dstUrl) {
-    // 第三方代理可能不支持WebSocket，返回错误
+    // Üçüncü taraf proxy'si WebSocket'i desteklemeyebilir, hata döndür
     return new Response("Third party proxy may not support WebSocket", { status: 400 });
   }
 }

@@ -6,26 +6,26 @@ import { ThirdPartyProxy } from './third-party.js';
 import { CloudProviderProxy } from './cloud-provider.js';
 
 /**
- * Socket代理类
- * 使用Cloudflare Socket API进行连接
+ * Soket Proxy Sınıfı
+ * Bağlantı için Cloudflare Soket API'sini kullanır
  */
 export class SocketProxy extends BaseProxy {
   /**
-   * 构造函数
-   * @param {object} config - 配置对象
+   * Kurucu
+   * @param {object} config - Yapılandırma nesnesi
    */
   constructor(config) {
     super(config);
   }
 
   /**
-   * 连接目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * Hedef sunucuya bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connect(req, dstUrl) {
-    // 检查请求是否为WebSocket请求
+    // İsteğin bir WebSocket isteği olup olmadığını kontrol et
     const upgradeHeader = req.headers.get("Upgrade")?.toLowerCase();
     const isWebSocket = upgradeHeader === "websocket";
     
@@ -37,42 +37,42 @@ export class SocketProxy extends BaseProxy {
   }
 
   /**
-   * 连接WebSocket目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * WebSocket hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectWebSocket(req, dstUrl) {
     const targetUrl = new URL(dstUrl);
     
-    // 如果目标URL不支持WebSocket协议，返回错误响应
-    if (!/^wss?:\/\//i.test(dstUrl)) {
+    // Hedef URL WebSocket protokolünü desteklemiyorsa, bir hata yanıtı döndür
+    if (!/^wss?:\/\/i.test(dstUrl)) {
       return new Response("Target does not support WebSocket", { status: 400 });
     }
     
     const isSecure = targetUrl.protocol === "wss:";
     const port = targetUrl.port || (isSecure ? 443 : 80);
     
-    // 建立到目标服务器的原始套接字连接
+    // Hedef sunucuya ham bir soket bağlantısı kur
     const socket = await connect(
       { hostname: targetUrl.hostname, port: Number(port) },
       { secureTransport: isSecure ? "on" : "off", allowHalfOpen: false }
     );
   
-    // 生成WebSocket握手所需的密钥
+    // WebSocket el sıkışması için gereken anahtarı oluştur
     const key = this.generateWebSocketKey();
 
-    // 清理头部信息
+    // Başlık bilgilerini temizle
     const cleanedHeaders = this.filterHeaders(req.headers);
     
-    // 构建握手所需的HTTP头部
+    // El sıkışma için gereken HTTP başlıklarını oluştur
     cleanedHeaders.set('Host', targetUrl.hostname);
     cleanedHeaders.set('Connection', 'Upgrade');
     cleanedHeaders.set('Upgrade', 'websocket');
     cleanedHeaders.set('Sec-WebSocket-Version', '13');
     cleanedHeaders.set('Sec-WebSocket-Key', key);
   
-    // 组装WebSocket握手的HTTP请求数据
+    // WebSocket el sıkışması için HTTP istek verilerini birleştir
     const handshakeReq =
       `GET ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
       Array.from(cleanedHeaders.entries())
@@ -88,7 +88,7 @@ export class SocketProxy extends BaseProxy {
     const handshakeResp = await this.readUntilDoubleCRLF(reader);
     this.log("Received handshake response", handshakeResp);
     
-    // 验证握手响应是否表明101 Switching Protocols状态
+    // El sıkışma yanıtının 101 Protokol Değiştirme durumunu gösterip göstermediğini doğrula
     if (
       !handshakeResp.includes("101") ||
       !handshakeResp.includes("Switching Protocols")
@@ -96,32 +96,32 @@ export class SocketProxy extends BaseProxy {
       throw new Error("WebSocket handshake failed: " + handshakeResp);
     }
   
-    // 创建内部WebSocketPair
+    // Dahili bir WebSocketPair oluştur
     const webSocketPair = new WebSocketPair();
     const client = webSocketPair[0];
     const server = webSocketPair[1];
     client.accept();
     
-    // 在客户端和远程套接字之间建立双向帧中继
+    // İstemci ve uzak soket arasında çift yönlü bir çerçeve rölesi kur
     this.relayWebSocketFrames(client, socket, writer, reader);
     return new Response(null, { status: 101, webSocket: server });
   }
 
   /**
-   * 连接HTTP目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * HTTP hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttp(req, dstUrl) {
-    // 为可能的回退操作，立即克隆请求以保留其body流
+    // Olası bir geri dönüş işlemi için, gövde akışını korumak üzere isteği hemen klonla
     const reqForFallback = req.clone();
     const targetUrl = new URL(dstUrl);
     
-    // 清理头部信息
+    // Başlık bilgilerini temizle
     const cleanedHeaders = this.filterHeaders(req.headers);
     
-    // 对于标准HTTP请求：设置必需的头部（如Host并禁用压缩）
+    // Standart HTTP istekleri için: gerekli başlıkları ayarla (Host gibi ve sıkıştırmayı devre dışı bırak)
     cleanedHeaders.set("Host", targetUrl.hostname);
     cleanedHeaders.set("accept-encoding", "identity");
   
@@ -133,7 +133,7 @@ export class SocketProxy extends BaseProxy {
       );
       const writer = socket.writable.getWriter();
       
-      // 构建请求行和头部
+      // İstek satırını ve başlıklarını oluştur
       const requestLine =
         `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
         Array.from(cleanedHeaders.entries())
@@ -144,7 +144,7 @@ export class SocketProxy extends BaseProxy {
       this.log("Sending request", requestLine);
       await writer.write(this.encoder.encode(requestLine));
     
-      // 如果有请求体，将其转发到目标服务器
+      // Bir istek gövdesi varsa, onu hedef sunucuya ilet
       if (req.body) {
         this.log("Forwarding request body");
         const reader = req.body.getReader();
@@ -155,23 +155,23 @@ export class SocketProxy extends BaseProxy {
         }
       }
       
-      // 解析并返回目标服务器的响应
+      // Hedef sunucunun yanıtını ayrıştır ve döndür
       return await this.parseResponse(socket.readable.getReader());
     } catch (error) {
-      // 检查是否是Cloudflare网络限制错误
+      // Cloudflare ağ kısıtlama hatası olup olmadığını kontrol et
       if (this.isCloudflareNetworkError(error)) {
         this.log("Cloudflare network restriction detected, switching to fallback proxy");
         this.log("Original error:", error.message);
         
-        // 根据环境变量配置的备用策略选择合适的备用方案
+        // Ortam değişkenlerinde yapılandırılan geri dönüş stratejisine göre uygun bir geri dönüş planı seç
         const fallbackStrategy = this.config.FALLBACK_PROXY_STRATEGY || "fetch";
         this.log("Using fallback strategy:", fallbackStrategy);
         
-        // 创建备用代理实例
+        // Bir geri dönüş proxy örneği oluştur
         const fallbackConfig = { ...this.config, PROXY_STRATEGY: fallbackStrategy };
         let fallbackProxy;
         
-        // 根据备用策略创建相应的代理实例
+        // Geri dönüş stratejisine göre ilgili proxy örneğini oluştur
         switch (fallbackStrategy.toLowerCase()) {
           case 'fetch':
             fallbackProxy = new FetchProxy(fallbackConfig);
@@ -191,23 +191,23 @@ export class SocketProxy extends BaseProxy {
         
         this.log("Attempting fallback connection with", fallbackStrategy);
         
-        // 使用备用代理
-        // 使用克隆出来的、body未被动过的请求来进行回退
+        // Geri dönüş proxy'sini kullan
+        // Geri dönüş için gövdesi değiştirilmemiş klonlanmış isteği kullan
         return await fallbackProxy.connectHttp(reqForFallback, dstUrl);
       }
       
-      // 使用统一的错误处理方法
+      // Birleşik hata işleme yöntemini kullan
       return this.handleError(error, "Socket connection");
     }
   }
 
   /**
-   * 检查是否为Cloudflare网络限制错误
-   * @param {Error} error - 错误对象
-   * @returns {boolean} 是否为Cloudflare网络限制错误
+   * Cloudflare ağ kısıtlama hatası olup olmadığını kontrol eder
+   * @param {Error} error - Hata nesnesi
+   * @returns {boolean} Cloudflare ağ kısıtlama hatası olup olmadığı
    */
   isCloudflareNetworkError(error) {
-    // Cloudflare网络限制错误通常包含特定的错误消息
+    // Cloudflare ağ kısıtlama hataları genellikle belirli hata mesajları içerir
     return error.message && (
       error.message.includes("A network issue was detected") ||
       error.message.includes("Network connection failure") ||
@@ -222,7 +222,7 @@ export class SocketProxy extends BaseProxy {
   }
 
   async handleDnsQuery(req) {
-    // Socket代理不直接处理DNS查询请求，需要使用DoH或DoT代理
+    // Soket proxy'si DNS sorgu isteklerini doğrudan işlemez, DoH veya DoT proxy'si kullanılmalıdır
     return new Response("Socket proxy does not support DNS query handling. Please use DoH or DoT proxy.", { status: 400 });
   }
 }

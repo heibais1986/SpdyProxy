@@ -1,69 +1,69 @@
 /**
- * 基础代理类
- * 所有代理策略都应继承此类
+ * Temel Proxy Sınıfı
+ * Tüm proxy stratejileri bu sınıftan miras almalıdır
  */
 export class BaseProxy {
   /**
-   * 构造函数
-   * @param {object} config - 配置对象
+   * Kurucu
+   * @param {object} config - Yapılandırma nesnesi
    */
   constructor(config) {
     this.config = config;
     this.encoder = new TextEncoder();
     this.decoder = new TextDecoder();
     
-    // 定义调试日志输出函数
+    // Hata ayıklama günlüğü çıktı işlevini tanımla
     this.log = config.DEBUG_MODE
       ? (message, data = "") => console.log(`[DEBUG] ${message}`, data)
       : () => {};
   }
 
   /**
-   * 连接目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * Hedef sunucuya bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connect(req, dstUrl) {
     throw new Error("connect method must be implemented by subclass");
   }
 
   /**
-   * 连接WebSocket目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * WebSocket hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectWebSocket(req, dstUrl) {
     throw new Error("connectWebSocket method must be implemented by subclass");
   }
 
   /**
-   * 连接HTTP目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * HTTP hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttp(req, dstUrl) {
     throw new Error("connectHttp method must be implemented by subclass");
   }
 
   /**
-   * 处理DNS查询请求
-   * @param {Request} req - 请求对象
-   * @returns {Promise<Response>} 响应对象
+   * DNS sorgu isteğini işler
+   * @param {Request} req - İstek nesnesi
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async handleDnsQuery(req) {
-    // 默认实现
+    // Varsayılan uygulama
     return new Response("DNS query handling not implemented for this proxy type", { status: 501 });
   }
 
   /**
-   * 错误处理方法
-   * @param {Error} error - 错误对象
-   * @param {string} context - 错误上下文描述
-   * @param {number} status - HTTP状态码
-   * @returns {Response} 错误响应
+   * Hata işleme yöntemi
+   * @param {Error} error - Hata nesnesi
+   * @param {string} context - Hata bağlamı açıklaması
+   * @param {number} status - HTTP durum kodu
+   * @returns {Response} Hata yanıtı
    */
   handleError(error, context, status = 500) {
     this.log(`${context} failed`, error.message);
@@ -71,36 +71,36 @@ export class BaseProxy {
   }
 
   /**
-   * 检查是否为Cloudflare网络限制错误
-   * @param {Error} error - 错误对象
-   * @returns {boolean} 是否为Cloudflare网络限制错误
+   * Cloudflare ağ sınırlama hatası olup olmadığını kontrol eder
+   * @param {Error} error - Hata nesnesi
+   * @returns {boolean} Cloudflare ağ sınırlama hatası olup olmadığı
    */
   isCloudflareNetworkError(error) {
-    // 默认实现
+    // Varsayılan uygulama
     return false;
   }
 
   /**
-   * 通用的HTTP代理连接方法
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @param {string} proxyUrl - 代理URL
-   * @param {string} proxyType - 代理类型（用于日志）
-   * @returns {Promise<Response>} 响应对象
+   * Genel HTTP proxy bağlantı yöntemi
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @param {string} proxyUrl - Proxy URL'si
+   * @param {string} proxyType - Proxy türü (günlük için)
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttpViaProxy(req, dstUrl, proxyUrl, proxyType) {
     const targetUrl = new URL(dstUrl);
     const proxyUrlObj = new URL(proxyUrl);
     proxyUrlObj.searchParams.set('target', dstUrl);
     
-    // 清理Cloudflare泄露隐私的头部信息
+    // Cloudflare'in gizliliği ifşa eden başlık bilgilerini temizle
     const cleanedHeaders = this.filterHeaders(req.headers);
     
-    // 设置必需的头部
+    // Gerekli başlıkları ayarla
     cleanedHeaders.set("Host", proxyUrlObj.hostname);
     
     try {
-      // 使用代理进行连接
+      // Bağlantı için proxy kullan
       const fetchRequest = new Request(proxyUrlObj.toString(), {
         method: req.method,
         headers: cleanedHeaders,
@@ -110,18 +110,18 @@ export class BaseProxy {
       this.log(`Using ${proxyType} proxy to connect to`, dstUrl);
       return await fetch(fetchRequest);
     } catch (error) {
-      // 使用统一的错误处理方法
+      // Birleşik hata işleme yöntemini kullan
       return this.handleError(error, `${proxyType} proxy connection`);
     }
   }
 
   /**
-   * 过滤HTTP头
-   * @param {Headers} headers - HTTP头
-   * @returns {Headers} 过滤后的HTTP头
+   * HTTP başlıklarını filtrele
+   * @param {Headers} headers - HTTP başlıkları
+   * @returns {Headers} Filtrelenmiş HTTP başlıkları
    */
   filterHeaders(headers) {
-    // 过滤不应转发的HTTP头（忽略以下头部：host、accept-encoding、cf-*、cdn-*、referer、referrer）
+    // Yönlendirilmemesi gereken HTTP başlıklarını filtrele (şu başlıkları yoksay: host, accept-encoding, cf-*, cdn-*, referer, referrer)
     const HEADER_FILTER_RE = /^(host|accept-encoding|cf-|cdn-|referer|referrer)/i;
     const cleanedHeaders = new Headers();
     
@@ -135,8 +135,8 @@ export class BaseProxy {
   }
 
   /**
-   * 生成WebSocket握手所需的随机Sec-WebSocket-Key
-   * @returns {string} WebSocket密钥
+   * WebSocket el sıkışması için gereken rastgele Sec-WebSocket-Key oluşturur
+   * @returns {string} WebSocket anahtarı
    */
   generateWebSocketKey() {
     const bytes = new Uint8Array(16);
@@ -145,14 +145,14 @@ export class BaseProxy {
   }
 
   /**
-   * 在客户端和远程套接字之间双向中继WebSocket帧
-   * @param {WebSocket} ws - WebSocket对象
-   * @param {Socket} socket - Socket对象
-   * @param {WritableStreamDefaultWriter} writer - 写入器
-   * @param {ReadableStreamDefaultReader} reader - 读取器
+   * İstemci ve uzak soket arasında WebSocket çerçevelerini çift yönlü olarak aktarır
+   * @param {WebSocket} ws - WebSocket nesnesi
+   * @param {Socket} socket - Soket nesnesi
+   * @param {WritableStreamDefaultWriter} writer - Yazıcı
+   * @param {ReadableStreamDefaultReader} reader - Okuyucu
    */
   relayWebSocketFrames(ws, socket, writer, reader) {
-    // 监听来自客户端的消息，将其打包成帧并发送到远程套接字
+    // İstemciden gelen mesajları dinle, çerçevelere paketle ve uzak sokete gönder
     ws.addEventListener("message", async (event) => {
       let payload;
       if (typeof event.data === "string") {
@@ -170,20 +170,20 @@ export class BaseProxy {
       }
     });
     
-    // 异步中继从远程接收的WebSocket帧到客户端
+    // Uzaktan alınan WebSocket çerçevelerini istemciye eşzamansız olarak aktar
     (async () => {
       const frameReader = new this.SocketFramesReader(reader, this);
       try {
         while (true) {
           const frame = await frameReader.nextFrame();
           if (!frame) break;
-          // 根据操作码处理数据帧
+          // İşlem koduna göre veri çerçevelerini işle
           switch (frame.opcode) {
-            case 1: // 文本帧
-            case 2: // 二进制帧
+            case 1: // Metin çerçevesi
+            case 2: // İkili çerçeve
               ws.send(frame.payload);
               break;
-            case 8: // 关闭帧
+            case 8: // Kapatma çerçevesi
               this.log("Received Close frame, closing WebSocket");
               ws.close(1000);
               return;
@@ -200,18 +200,18 @@ export class BaseProxy {
       }
     })();
     
-    // 当客户端WebSocket关闭时，也关闭远程套接字连接
+    // İstemci WebSocket'i kapandığında, uzak soket bağlantısını da kapat
     ws.addEventListener("close", () => socket.close());
   }
 
   /**
-   * 将文本消息打包成WebSocket帧
-   * @param {Uint8Array} payload - 载荷
-   * @returns {Uint8Array} 打包后的帧
+   * Metin mesajını bir WebSocket çerçevesine paketler
+   * @param {Uint8Array} payload - Yük
+   * @returns {Uint8Array} Paketlenmiş çerçeve
    */
   packTextFrame(payload) {
-    const FIN_AND_OP = 0x81; // FIN标志和文本帧操作码
-    const maskBit = 0x80; // 掩码位（客户端发送的消息必须设置为1）
+    const FIN_AND_OP = 0x81; // FIN bayrağı ve metin çerçevesi işlem kodu
+    const maskBit = 0x80; // Maske biti (istemci tarafından gönderilen mesajlar için 1 olarak ayarlanmalıdır)
     const len = payload.length;
     let header;
     if (len < 126) {
@@ -227,26 +227,26 @@ export class BaseProxy {
     } else {
       throw new Error("Payload too large");
     }
-    // 生成4字节随机掩码
+    // 4 baytlık rastgele maske oluştur
     const mask = new Uint8Array(4);
     crypto.getRandomValues(mask);
     const maskedPayload = new Uint8Array(len);
-    // 对载荷应用掩码
+    // Yüke maske uygula
     for (let i = 0; i < len; i++) {
       maskedPayload[i] = payload[i] ^ mask[i % 4];
     }
-    // 连接帧头、掩码和掩码后的载荷
+    // Çerçeve başlığını, maskeyi ve maskelenmiş yükü birleştir
     return this.concatUint8Arrays(header, mask, maskedPayload);
   }
 
   /**
-   * 用于解析和重组WebSocket帧的类，支持分片消息
+   * Parçalanmış mesajları destekleyen WebSocket çerçevelerini ayrıştırmak ve yeniden birleştirmek için sınıf
    */
   SocketFramesReader = class {
     /**
-     * 构造函数
-     * @param {ReadableStreamDefaultReader} reader - 读取器
-     * @param {BaseProxy} parent - 父类实例
+     * Kurucu
+     * @param {ReadableStreamDefaultReader} reader - Okuyucu
+     * @param {BaseProxy} parent - Üst sınıf örneği
      */
     constructor(reader, parent) {
       this.reader = reader;
@@ -257,9 +257,9 @@ export class BaseProxy {
     }
     
     /**
-     * 确保缓冲区有足够的字节用于解析
-     * @param {number} length - 长度
-     * @returns {Promise<boolean>} 是否有足够的字节
+     * Arabellekte ayrıştırma için yeterli bayt olduğundan emin olur
+     * @param {number} length - Uzunluk
+     * @returns {Promise<boolean>} Yeterli bayt olup olmadığı
      */
     async ensureBuffer(length) {
       while (this.buffer.length < length) {
@@ -271,8 +271,8 @@ export class BaseProxy {
     }
     
     /**
-     * 解析下一个WebSocket帧并处理分片
-     * @returns {Promise<object|null>} 帧对象
+     * Sonraki WebSocket çerçevesini ayrıştırır ve parçalanmayı işler
+     * @returns {Promise<object|null>} Çerçeve nesnesi
      */
     async nextFrame() {
       while (true) {
@@ -284,7 +284,7 @@ export class BaseProxy {
           isMasked = (second >> 7) & 1;
         let payloadLen = second & 0x7f,
           offset = 2;
-        // 如果载荷长度为126，解析下两个字节获取实际长度
+        // Yük uzunluğu 126 ise, gerçek uzunluğu almak için sonraki iki baytı ayrıştır
         if (payloadLen === 126) {
           if (!(await this.ensureBuffer(offset + 2))) return null;
           payloadLen = (this.buffer[offset] << 8) | this.buffer[offset + 1];
@@ -305,7 +305,7 @@ export class BaseProxy {
             payload[i] ^= mask[i % 4];
           }
         }
-        // 从缓冲区中移除已处理的字节
+        // İşlenmiş baytları arabellekten kaldır
         this.buffer = this.buffer.slice(offset + payloadLen);
         if (opcode === 0) {
           if (this.fragmentedPayload === null)
@@ -318,7 +318,7 @@ export class BaseProxy {
             return { fin: true, opcode: completeOpcode, payload: completePayload };
           }
         } else {
-          // 如果有分片数据但当前帧不是延续帧，重置分片状态
+          // Parçalanmış veri varsa ancak geçerli çerçeve bir devam çerçevesi değilse, parçalanma durumunu sıfırla
           if (!fin) {
             this.fragmentedPayload = payload;
             this.fragmentedOpcode = opcode;
@@ -335,9 +335,9 @@ export class BaseProxy {
   };
 
   /**
-   * 连接多个Uint8Array
-   * @param {...Uint8Array} arrays - 要连接的数组
-   * @returns {Uint8Array} 连接后的数组
+   * Birden çok Uint8Array'i birleştirir
+   * @param {...Uint8Array} arrays - Birleştirilecek diziler
+   * @returns {Uint8Array} Birleştirilmiş dizi
    */
   concatUint8Arrays(...arrays) {
     const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
@@ -351,22 +351,22 @@ export class BaseProxy {
   }
 
   /**
-   * 解析HTTP响应头
-   * @param {Uint8Array} buff - 缓冲区
-   * @returns {object|null} 解析结果
+   * HTTP yanıt başlıklarını ayrıştırır
+   * @param {Uint8Array} buff - Arabellek
+   * @returns {object|null} Ayrıştırma sonucu
    */
   parseHttpHeaders(buff) {
     const text = this.decoder.decode(buff);
-    // 查找由"\r\n\r\n"指示的HTTP头部结束标志
+    // "\r\n\r\n" ile belirtilen HTTP başlık sonu işaretçisini bul
     const headerEnd = text.indexOf("\r\n\r\n");
     if (headerEnd === -1) return null;
     const headerSection = text.slice(0, headerEnd).split("\r\n");
     const statusLine = headerSection[0];
-    // 匹配HTTP状态行
+    // HTTP durum satırını eşleştir
     const statusMatch = statusLine.match(/HTTP\/1\.[01] (\d+) (.*)/);
     if (!statusMatch) throw new Error(`Invalid status line: ${statusLine}`);
     const headers = new Headers();
-    // 解析响应头
+    // Yanıt başlıklarını ayrıştır
     for (let i = 1; i < headerSection.length; i++) {
       const line = headerSection[i];
       const idx = line.indexOf(": ");
@@ -378,9 +378,9 @@ export class BaseProxy {
   }
 
   /**
-   * 读取直到双CRLF
-   * @param {ReadableStreamDefaultReader} reader - 读取器
-   * @returns {Promise<string>} 读取的文本
+   * Çift CRLF'ye kadar okur
+   * @param {ReadableStreamDefaultReader} reader - Okuyucu
+   * @returns {Promise<string>} Okunan metin
    */
   async readUntilDoubleCRLF(reader) {
     let respText = "";
@@ -396,9 +396,9 @@ export class BaseProxy {
   }
 
   /**
-   * 解析完整的HTTP响应
-   * @param {ReadableStreamDefaultReader} reader - 读取器
-   * @returns {Promise<Response>} 响应对象
+   * Tam HTTP yanıtını ayrıştırır
+   * @param {ReadableStreamDefaultReader} reader - Okuyucu
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async parseResponse(reader) {
     let buff = new Uint8Array();
@@ -412,8 +412,8 @@ export class BaseProxy {
           const isChunked = headers.get("transfer-encoding")?.includes("chunked");
           const contentLength = parseInt(headers.get("content-length") || "0", 10);
           const data = buff.slice(headerEnd + 4);
-          // 通过ReadableStream分发响应体数据
-          // 保存this上下文
+          // Yanıt gövdesi verilerini ReadableStream aracılığıyla dağıt
+          // this bağlamını kaydet
           const self = this;
           return new Response(
             new ReadableStream({
@@ -421,7 +421,7 @@ export class BaseProxy {
                 try {
                   if (isChunked) {
                     console.log("Using chunked transfer mode");
-                    // 分块传输模式：按顺序读取并入队每个块
+                    // Parçalı aktarım modu: her bloğu sırayla oku ve sıraya al
                     for await (const chunk of self.readChunks(reader, data)) {
                       ctrl.enqueue(chunk);
                     }
@@ -429,7 +429,7 @@ export class BaseProxy {
                     console.log("Using fixed-length transfer mode, contentLength: " + contentLength);
                     let received = data.length;
                     if (data.length) ctrl.enqueue(data);
-                    // 固定长度模式：根据content-length读取指定字节数
+                    // Sabit uzunluk modu: content-length'e göre belirtilen bayt sayısını oku
                     while (received < contentLength) {
                       const { value, done } = await reader.read();
                       if (done) break;
@@ -454,14 +454,14 @@ export class BaseProxy {
   }
 
   /**
-   * 异步生成器：读取分块HTTP响应数据并按顺序产出每个数据块
-   * @param {ReadableStreamDefaultReader} reader - 读取器
-   * @param {Uint8Array} buff - 缓冲区
-   * @returns {AsyncGenerator<Uint8Array>} 数据块生成器
+   * Eşzamansız üreteç: parçalı HTTP yanıt verilerini okur ve her veri bloğunu sırayla üretir
+   * @param {ReadableStreamDefaultReader} reader - Okuyucu
+   * @param {Uint8Array} buff - Arabellek
+   * @returns {AsyncGenerator<Uint8Array>} Veri bloğu üreteci
    */
   async *readChunks(reader, buff = new Uint8Array()) {
     while (true) {
-      // 在现有缓冲区中查找CRLF分隔符的位置
+      // Mevcut arabellekte CRLF ayırıcısının konumunu bul
       let pos = -1;
       for (let i = 0; i < buff.length - 1; i++) {
         if (buff[i] === 13 && buff[i + 1] === 10) {
@@ -469,28 +469,28 @@ export class BaseProxy {
           break;
         }
       }
-      // 如果未找到，继续读取更多数据来填充缓冲区
+      // Bulunamazsa, arabelleği doldurmak için daha fazla veri okumaya devam et
       if (pos === -1) {
         const { value, done } = await reader.read();
         if (done) break;
         buff = this.concatUint8Arrays(buff, value);
         continue;
       }
-      // 解析块大小（十六进制格式）
+      // Blok boyutunu ayrıştır (onaltılık biçim)
       const sizeStr = this.decoder.decode(buff.slice(0, pos));
       const size = parseInt(sizeStr, 16);
       this.log("Read chunk size", size);
-      // 大小为0表示块结束
+      // Boyut 0, bloğun sonunu gösterir
       if (!size) break;
-      // 从缓冲区中移除已解析的大小部分和后续的CRLF
+      // Ayrıştırılmış boyut bölümünü ve sonraki CRLF'yi arabellekten kaldır
       buff = buff.slice(pos + 2);
-      // 确保缓冲区包含完整的块（包括尾部的CRLF）
+      // Arabelleğin tam bloğu içerdiğinden emin ol (sondaki CRLF dahil)
       while (buff.length < size + 2) {
         const { value, done } = await reader.read();
         if (done) throw new Error("Unexpected EOF in chunked encoding");
         buff = this.concatUint8Arrays(buff, value);
       }
-      // 产出块数据（不包括尾部的CRLF）
+      // Blok verilerini üret (sondaki CRLF hariç)
       yield buff.slice(0, size);
       buff = buff.slice(size + 2);
     }

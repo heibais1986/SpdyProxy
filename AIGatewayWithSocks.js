@@ -1,23 +1,23 @@
 import { connect } from "cloudflare:sockets";
 
-// 全局配置
+// Genel Yapılandırma
 const DEFAULT_CONFIG = {
-  AUTH_TOKEN: "defaulttoken", // 默认鉴权令牌,必须更改
+  AUTH_TOKEN: "defaulttoken", // Varsayılan kimlik doğrulama belirteci, değiştirilmelidir
   DEFAULT_DST_URL: "https://httpbin.org/get",
   DEBUG_MODE: true,
   ENABLE_UA_RANDOMIZATION: true,
-  ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION: false, // 随机 Accept-Language
-  ENABLE_SOCKS5_FALLBACK: true, // 启用 Socks5 fallback
+  ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION: false, // Rastgele Accept-Language
+  ENABLE_SOCKS5_FALLBACK: true, // Socks5 geri dönüşünü etkinleştir
 };
 
-// Socks5 API
+// Socks5 API'si
 const SOCKS5_API_URLS = [
   "https://api1.example.com/socks5",
   "https://api2.example.com/socks5", 
   "https://api3.example.com/socks5"
 ];
 
-// 主机请求方式配置集合 (key: host, value: 'nativeFetch' | 'socks5')
+// Ana bilgisayar istek yöntemi yapılandırma koleksiyonu (anahtar: ana bilgisayar, değer: 'nativeFetch' | 'socks5')
 const HOST_REQUEST_CONFIG = new Map([
   ["api.openai.com", "socks5"],
   ["generativelanguage.googleapis.com", "nativeFetch"],
@@ -26,7 +26,7 @@ const HOST_REQUEST_CONFIG = new Map([
   ["httpbin.org", "nativeFetch"],
 ]);
 
-// URL预设映射 (简化路径映射到完整URL)
+// URL Ön Ayar eşlemesi (yol eşlemesini tam URL'ye basitleştirin)
 const URL_PRESETS = new Map([
   ["gemini", "https://generativelanguage.googleapis.com"],
   ["openai", "https://api.openai.com"],
@@ -76,18 +76,18 @@ class UserAgentManager {
         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
       ];
       this.acceptLanguages = [
-        'zh-CN,zh;q=0.9,en;q=0.8',
-      'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-      'zh-CN,zh;q=0.9',
-      'en-US,en;q=0.9',
-      'en-US,en;q=0.9,es;q=0.8',
-      'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-      'en-GB,en;q=0.9',
-      'en-GB,en-US;q=0.9,en;q=0.8',
-      'en-GB,en;q=0.9,fr;q=0.8',
-      'en-SG,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-      'zh-CN,zh;q=0.9,en-SG;q=0.8,en;q=0.7',
-      'en-SG,en;q=0.9,ms;q=0.8'
+        'tr-TR,tr;q=0.9,en;q=0.8',
+        'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        'tr-TR,tr;q=0.9',
+        'en-US,en;q=0.9',
+        'en-US,en;q=0.9,es;q=0.8',
+        'en-US,en;q=0.9,tr-TR;q=0.8,tr;q=0.7',
+        'en-GB,en;q=0.9',
+        'en-GB,en-US;q=0.9,en;q=0.8',
+        'en-GB,en;q=0.9,fr;q=0.8',
+        'en-SG,en;q=0.9,tr-TR;q=0.8,tr;q=0.7',
+        'tr-TR,tr;q=0.9,en-SG;q=0.8,en;q=0.7',
+        'en-SG,en;q=0.9,ms;q=0.8'
       ];
     }
     getRandomUserAgent() {
@@ -110,11 +110,11 @@ async function parseSocks5Proxy() {
     try {
       const randomApiUrl = SOCKS5_API_URLS[Math.floor(Math.random() * SOCKS5_API_URLS.length)];
       const response = await fetch(randomApiUrl, { method: 'GET' });
-      if (!response.ok) throw new Error(`获取 Socks5 代理失败: ${response.status}`);
+      if (!response.ok) throw new Error(`Socks5 proxy alınamadı: ${response.status}`);
       const proxyData = await response.text();
-      if (!proxyData || proxyData.trim() === '') throw new Error('未获取到 Socks5 代理数据');
+      if (!proxyData || proxyData.trim() === '') throw new Error('Socks5 proxy verisi alınamadı');
       const proxyList = proxyData.trim().split('\n').filter(line => line.trim());
-      if (proxyList.length === 0) throw new Error('代理列表为空');
+      if (proxyList.length === 0) throw new Error('Proxy listesi boş');
       const selectedProxy = proxyList[Math.floor(Math.random() * proxyList.length)];
       let proxyStr = selectedProxy.trim();
       let username = null, password = null, host = null, port = null;
@@ -127,10 +127,10 @@ async function parseSocks5Proxy() {
         [host, port] = proxyStr.split(':');
       }
       port = parseInt(port);
-      if (!host || !port || isNaN(port)) throw new Error(`代理格式不完整: ${selectedProxy}`);
+      if (!host || !port || isNaN(port)) throw new Error(`Proxy formatı eksik: ${selectedProxy}`);
       return { host, port, username, password, hasAuth: !!(username && password) };
     } catch (error) {
-      log('解析 Socks5 代理失败:', error.message);
+      log('Socks5 proxy ayrıştırma başarısız oldu:', error.message);
       throw error;
     }
 }
@@ -139,10 +139,10 @@ async function performSocks5Handshake(reader, writer, targetHost, targetPort, us
     const hasAuth = !!(username && password);
     await writer.write(hasAuth ? new Uint8Array([0x05, 0x01, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]));
     const authResult = await reader.read();
-    if (authResult.done || authResult.value[0] !== 0x05) throw new Error('Socks5 版本不匹配或响应错误');
+    if (authResult.done || authResult.value[0] !== 0x05) throw new Error('Socks5 sürümü eşleşmiyor veya yanıt hatası');
     const selectedMethod = authResult.value[1];
-    if (hasAuth && selectedMethod !== 0x02) throw new Error('Socks5 服务器不支持用户名密码认证');
-    if (!hasAuth && selectedMethod !== 0x00) throw new Error('Socks5 服务器需要认证但未提供');
+    if (hasAuth && selectedMethod !== 0x02) throw new Error('Socks5 sunucusu kullanıcı adı/şifre kimlik doğrulamasını desteklemiyor');
+    if (!hasAuth && selectedMethod !== 0x00) throw new Error('Socks5 sunucusu kimlik doğrulama gerektiriyor ancak sağlanmadı');
     if (hasAuth) {
       const usernameBytes = encoder.encode(username);
       const passwordBytes = encoder.encode(password);
@@ -153,7 +153,7 @@ async function performSocks5Handshake(reader, writer, targetHost, targetPort, us
       authData.set(passwordBytes, 3 + usernameBytes.length);
       await writer.write(authData);
       const authResult2 = await reader.read();
-      if (authResult2.done || authResult2.value[1] !== 0x00) throw new Error('Socks5 用户名密码认证失败');
+      if (authResult2.done || authResult2.value[1] !== 0x00) throw new Error('Socks5 kullanıcı adı/şifre kimlik doğrulaması başarısız oldu');
     }
     const hostBytes = encoder.encode(targetHost);
     const connectRequest = new Uint8Array(7 + hostBytes.length);
@@ -162,8 +162,8 @@ async function performSocks5Handshake(reader, writer, targetHost, targetPort, us
     connectRequest.set([(targetPort >> 8) & 0xFF, targetPort & 0xFF], 5 + hostBytes.length);
     await writer.write(connectRequest);
     const connectResult = await reader.read();
-    if (connectResult.done || connectResult.value[1] !== 0x00) throw new Error(`Socks5 连接请求失败: 错误码 ${connectResult.value[1]}`);
-    log('Socks5 握手完成');
+    if (connectResult.done || connectResult.value[1] !== 0x00) throw new Error(`Socks5 bağlantı isteği başarısız oldu: Hata kodu ${connectResult.value[1]}`);
+    log('Socks5 el sıkışması tamamlandı');
 }
 
 async function fetchViaSocks5(req, dsturl) {
@@ -198,7 +198,7 @@ async function fetchViaSocks5(req, dsturl) {
         throw e;
       }
     } catch (error) {
-      log('Socks5 代理请求失败:', error.message);
+      log('Socks5 proxy isteği başarısız oldu:', error.message);
       throw error;
     }
 }
@@ -230,14 +230,14 @@ function findSubarray(arr, subarr, start = 0) {
 const CRLF = new Uint8Array([13, 10]);
 const HEADER_END_MARKER = new Uint8Array([13, 10, 13, 10]);
 
-// 修复：使用 indexOf(': ') 来健壮地解析HTTP头部
+// Fix: Use indexOf(': ') for robust HTTP header parsing
 function parseHttpHeaders(buff) {
     const headerEndIndex = findSubarray(buff, HEADER_END_MARKER);
     if (headerEndIndex === -1) return null;
     const text = decoder.decode(buff.slice(0, headerEndIndex));
     const lines = text.split("\r\n");
     const statusMatch = lines[0].match(/HTTP\/1\.[01] (\d+) (.*)/);
-    if (!statusMatch) throw new Error(`无效状态行: ${lines[0]}`);
+    if (!statusMatch) throw new Error(`Geçersiz durum satırı: ${lines[0]}`);
     const headers = new Headers();
     for (let i = 1; i < lines.length; i++) {
       const idx = lines[i].indexOf(': ');
@@ -250,7 +250,7 @@ function parseHttpHeaders(buff) {
     return { status: Number(statusMatch[1]), statusText: statusMatch[2], headers, headerEnd: headerEndIndex };
 }
 
-// 增强：读取分块数据，使用动态缓冲区并处理 Trailer Headers
+// Enhancement: Read chunked data, use dynamic buffer and handle Trailer Headers
 async function* readChunks(reader, initialData) {
     let buffer = initialData;
     let offset = 0;
@@ -259,7 +259,7 @@ async function* readChunks(reader, initialData) {
         while (lineEnd === -1) {
             const { value, done } = await reader.read();
             if (done) {
-                if (buffer.length > offset) throw new Error("分块编码：流在解析分块大小时意外结束");
+                if (buffer.length > offset) throw new Error("Chunked encoding: Akış, chunk boyutunu ayrıştırırken beklenmedik şekilde sona erdi");
                 return;
             }
             if (offset > 0) {
@@ -271,28 +271,28 @@ async function* readChunks(reader, initialData) {
         }
         const sizeHex = decoder.decode(buffer.slice(offset, lineEnd)).trim();
         const size = parseInt(sizeHex, 16);
-        if (isNaN(size)) throw new Error(`无效的分块大小: ${sizeHex}`);
+        if (isNaN(size)) throw new Error(`Geçersiz chunk boyutu: ${sizeHex}`);
         offset = lineEnd + 2;
         if (size === 0) {
-            log("读取到最后一个分块 (size=0)，处理 Trailer");
-            // 简化：循环直到找到一个空行（即连续的CRLF）
+            log("Son chunk okundu (size=0), Trailer işleniyor");
+            // Simplify: Loop until an empty line is found (i.e., consecutive CRLF)
             while (findSubarray(buffer, CRLF, offset) !== offset) {
                 let nextLine = findSubarray(buffer, CRLF, offset);
                 if (nextLine !== -1) {
-                    offset = nextLine + 2; // 跳过 trailer 行
+                    offset = nextLine + 2; // Skip trailer line
                     continue;
                 }
                 const { value, done } = await reader.read();
-                if (done) throw new Error("分块编码：流在解析 Trailer 时意外结束");
+                if (done) throw new Error("Chunked encoding: Akış, Trailer'ı ayrıştırırken beklenmedik şekilde sona erdi");
                 buffer = concatUint8Arrays(buffer.slice(offset), value);
                 offset = 0;
             }
-            log("分块传输结束");
+            log("Chunked transfer bitti");
             return;
         }
         while (buffer.length < offset + size + 2) {
             const { value, done } = await reader.read();
-            if (done) throw new Error("分块编码：数据块不完整");
+            if (done) throw new Error("Chunked encoding: Data chunk eksik");
             buffer = concatUint8Arrays(buffer, value);
         }
         yield buffer.slice(offset, offset + size);
@@ -306,7 +306,7 @@ async function parseResponse(reader, socket) {
     while (true) {
       const { value, done } = await reader.read();
       if (value) buff = concatUint8Arrays(buff, value);
-      if (done && !buff.length) throw new Error("无法解析响应：流提前结束且无数据");
+      if (done && !buff.length) throw new Error("Yanıt ayrıştırılamadı: Akış erken bitti ve veri yok");
       const parsed = parseHttpHeaders(buff);
       if (parsed) {
         const { status, statusText, headers, headerEnd } = parsed;
@@ -317,37 +317,37 @@ async function parseResponse(reader, socket) {
           async start(ctrl) {
             try {
               if (isChunked) {
-                log("响应模式：分块编码 (Chunked)");
+                log("Yanıt Modu: Chunked Kodlama (Parçalı)");
                 for await (const chunk of readChunks(reader, initialBodyData)) ctrl.enqueue(chunk);
               } else {
-                log(`响应模式：定长 (Content-Length: ${contentLength})`);
+                log(`Yanıt Modu: Sabit Uzunluk (Content-Length: ${contentLength})`);
                 let received = initialBodyData.length;
                 if (received > 0) ctrl.enqueue(initialBodyData);
                 while (received < contentLength) {
                   const { value, done } = await reader.read();
-                  if (done) { log("警告：流在达到Content-Length之前结束"); break; }
+                  if (done) { log("Uyarı: Akış Content-Length'e ulaşmadan bitti"); break; }
                   received += value.length;
                   ctrl.enqueue(value);
                 }
               }
               ctrl.close();
             } catch (err) {
-              log("流式响应处理错误", err);
+              log("Akış yanıtı işleme hatası", err);
               ctrl.error(err);
             } finally {
               if (socket && !socket.closed) socket.close();
             }
           },
           cancel() {
-            log("流被客户端取消");
+            log("Akış istemci tarafından iptal edildi");
             if (socket && !socket.closed) socket.close();
           },
         }), { status, statusText, headers });
       }
-      if (done) throw new Error("无法解析响应头：流已结束");
+      if (done) throw new Error("Yanıt başlığı ayrıştırılamadı: Akış bitti");
     }
   } catch (error) {
-    log("解析响应时发生错误", error);
+    log("Yanıt ayrıştırılırken hata oluştu", error);
     if (socket && !socket.closed) socket.close();
     throw error;
   }
@@ -382,10 +382,10 @@ async function nativeFetch(req, dstUrl) {
             throw error;
         }
     } catch (error) {
-        log('直连失败，尝试 Socks5 Fallback:', error.message);
+        log('Doğrudan bağlantı başarısız oldu, Socks5 Geri Dönüş deneniyor:', error.message);
         if (CONFIG.ENABLE_SOCKS5_FALLBACK) {
-            try { return await fetchViaSocks5(req, dstUrl); }
-            catch (socks5Error) { log('Socks5 Fallback 也失败了:', socks5Error.message); throw socks5Error; }
+            try { return await fetchViaSocks5(req, dstUrl); } 
+            catch (socks5Error) { log('Socks5 Geri Dönüş de başarısız oldu:', socks5Error.message); throw socks5Error; }
         }
         throw error;
     }
@@ -394,11 +394,11 @@ async function nativeFetch(req, dstUrl) {
 async function smartFetch(req, dstUrl) {
     const hostname = new URL(dstUrl).hostname;
     const requestMethod = getRequestMethodForHost(hostname);
-    log(`主机 ${hostname} 使用请求方式: ${requestMethod}`);
+    log(`Host ${hostname} için istek yöntemi: ${requestMethod}`);
     try {
       return requestMethod === 'socks5' ? await fetchViaSocks5(req, dstUrl) : await nativeFetch(req, dstUrl);
     } catch (error) {
-      log(`智能路由请求失败 (${requestMethod}):`, error.message);
+      log(`Akıllı yönlendirme isteği başarısız oldu (${requestMethod}):`, error.message);
       throw error;
     }
 }
@@ -406,7 +406,7 @@ async function smartFetch(req, dstUrl) {
 async function smartFetchWithRetry(req, dstUrl, maxRetries = 2) {
     const isIdempotent = !['POST', 'PATCH'].includes(req.method.toUpperCase());
     if (!isIdempotent) {
-      log(`请求方法为 ${req.method}，非幂等，不进行重试`);
+      log(`İstek yöntemi ${req.method}, idempotent değil, yeniden deneme yapılmıyor`);
       return await smartFetch(req, dstUrl);
     }
     for (let i = 0; i <= maxRetries; i++) {
@@ -414,22 +414,22 @@ async function smartFetchWithRetry(req, dstUrl, maxRetries = 2) {
         const reqClone = req.clone();
         const response = await smartFetch(reqClone, dstUrl);
         if (response.status >= 500 && i < maxRetries) {
-          log(`收到 ${response.status} 错误，将在 ${Math.pow(2, i)} 秒后重试...`);
-          await response.body?.cancel(); // 使用 cancel 高效关闭连接
-          throw new Error(`Server error: ${response.status}`);
+          log(`${response.status} hatası alındı, ${Math.pow(2, i)} saniye sonra yeniden denenecek...`);
+          await response.body?.cancel(); // Use cancel to efficiently close the connection
+          throw new Error(`Sunucu hatası: ${response.status}`);
         }
         return response;
       } catch (error) {
-        log(`第 ${i + 1} 次尝试失败: ${error.message}`);
+        log(`Deneme ${i + 1} başarısız oldu: ${error.message}`);
         if (i === maxRetries) {
-          log("已达到最大重试次数，抛出错误");
+          log("Maksimum yeniden deneme sayısına ulaşıldı, hata fırlatılıyor");
           throw error;
         }
         const delay = Math.pow(2, i) * 1000;
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    throw new Error("重试逻辑异常结束");
+    throw new Error("Yeniden deneme mantığı beklenmedik şekilde sona erdi");
 }
 
 async function handleRequest(req, env) {
@@ -445,9 +445,9 @@ async function handleRequest(req, env) {
             return await smartFetchWithRetry(req, dstUrl);
         }
         const authToken = pathSegments[0];
-        if (authToken === "defaulttoken") return new Response("请修改默认AUTH_TOKEN", { status: 401 });
+        if (authToken === "defaulttoken") return new Response("Lütfen varsayılan AUTH_TOKEN'ı değiştirin", { status: 401 });
         if (authToken !== CONFIG.AUTH_TOKEN || pathSegments.length < 2) {
-            return new Response("Invalid path. Expected `/{authtoken}/{target_url}` or `/{preset}`.", { status: 400 });
+            return new Response("Geçersiz yol. `/{authtoken}/{target_url}` veya `/{preset}` bekleniyor.", { status: 400 });
         }
         
         const presetCandidate = pathSegments[1];
@@ -462,20 +462,22 @@ async function handleRequest(req, env) {
         } else {
             const authtokenPrefix = `/${authToken}/`;
             let targetUrl = decodeURIComponent(url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length));
-            resolvedUrl = resolveUrl(targetUrl); // resolveUrl will just return targetUrl if not in presets
+            resolvedUrl = resolveUrl(targetUrl); // resolveUrl, ön ayarlarda değilse yalnızca targetUrl'yi döndürür
             if (!/^https?:\/\//i.test(resolvedUrl)) {
-                 return new Response("Invalid target URL. Protocol (http/https) is required.", { status: 400 });
+                 return new Response("Geçersiz hedef URL. Protokol (http/https) gereklidir.", { status: 400 });
             }
         }
 
         const dstUrl = resolvedUrl + url.search;
-        log("目标URL", dstUrl);
+        log("Hedef URL", dstUrl);
         return await smartFetchWithRetry(req, dstUrl);
     } catch (error) {
-        log("请求处理失败", error);
-        return new Response("Bad Gateway", { status: 502 });
+        log("İstek işleme başarısız oldu", error);
+        return new Response("Kötü Ağ Geçidi", { status: 502 });
     }
 }
 
 export default { fetch: handleRequest };
 export const onRequest = (ctx) => handleRequest(ctx.request, ctx.env);
+nv);
+ctx.env);

@@ -3,17 +3,17 @@ import { BaseProxy } from './base.js';
 import { FetchProxy } from './fetch.js';
 
 /**
- * DoH (DNS over HTTPS) 代理类
- * 用于代理DNS查询请求
+ * DoH (DNS over HTTPS) Proxy Sınıfı
+ * DNS sorgu isteklerini proxy'lemek için kullanılır
  */
 export class DoHProxy extends BaseProxy {
   /**
-   * 构造函数
-   * @param {object} config - 配置对象
+   * Kurucu
+   * @param {object} config - Yapılandırma nesnesi
    */
   constructor(config) {
     super(config);
-    // 上游DoH服务器信息
+    // Yukarı akış DoH sunucu bilgileri
     this.UPSTREAM_DOH_SERVER = {
       hostname: config.DOH_SERVER_HOSTNAME || 'dns.google',
       port: config.DOH_SERVER_PORT || 443,
@@ -22,9 +22,9 @@ export class DoHProxy extends BaseProxy {
   }
 
   /**
-   * 处理DNS查询请求
-   * @param {Request} req - 请求对象
-   * @returns {Promise<Response>} 响应对象
+   * DNS sorgu isteğini işler
+   * @param {Request} req - İstek nesnesi
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async handleDnsQuery(req) {
     if (req.method !== 'POST' || req.headers.get('content-type') !== 'application/dns-message') {
@@ -35,21 +35,21 @@ export class DoHProxy extends BaseProxy {
     try {
       clientDnsQuery = await req.arrayBuffer();
 
-      // 过滤请求头，确保不泄露敏感信息
+      // Hassas bilgilerin sızdırılmamasını sağlamak için istek başlıklarını filtrele
       const cleanedHeaders = this.filterHeaders(req.headers);
 
-      // DOH请求头
+      // DOH istek başlıkları
       cleanedHeaders.set('Host', this.UPSTREAM_DOH_SERVER.hostname);
       cleanedHeaders.set('Content-Type', 'application/dns-message');
       cleanedHeaders.set('Content-Length', clientDnsQuery.byteLength.toString());
       cleanedHeaders.set('Accept', 'application/dns-message');
-      cleanedHeaders.set('Connection', 'close'); // 完成后关闭连接，简化处理
+      cleanedHeaders.set('Connection', 'close'); // Tamamlandıktan sonra bağlantıyı kapat, işlemi basitleştir
 
-      // 建立TLS连接
+      // TLS bağlantısı kur
       const socket = connect(this.UPSTREAM_DOH_SERVER, { secureTransport: 'on', allowHalfOpen: false });
       const writer = socket.writable.getWriter();
 
-      // 构建HTTP POST请求
+      // HTTP POST isteği oluştur
       const httpHeaders =
         `POST ${this.UPSTREAM_DOH_SERVER.path} HTTP/1.1\r\n` +
         Array.from(cleanedHeaders.entries())
@@ -60,16 +60,16 @@ export class DoHProxy extends BaseProxy {
       const requestHeaderBytes = this.encoder.encode(httpHeaders);
       const requestBodyBytes = new Uint8Array(clientDnsQuery);
 
-      // 合并请求头和请求体
+      // İstek başlığını ve gövdesini birleştir
       const fullRequest = new Uint8Array(requestHeaderBytes.length + requestBodyBytes.length);
       fullRequest.set(requestHeaderBytes, 0);
       fullRequest.set(requestBodyBytes, requestHeaderBytes.length);
 
-      // 请求
+      // İstek
       await writer.write(fullRequest);
       writer.releaseLock();
 
-      // 读取并解析响应
+      // Yanıtı oku ve ayrıştır
       const reader = socket.readable.getReader();
       let responseBytes = new Uint8Array();
 
@@ -77,7 +77,7 @@ export class DoHProxy extends BaseProxy {
         const { done, value } = await reader.read();
         if (done) break;
 
-        // 合并数据块
+        // Veri bloklarını birleştir
         const newBuffer = new Uint8Array(responseBytes.length + value.length);
         newBuffer.set(responseBytes, 0);
         newBuffer.set(value, responseBytes.length);
@@ -87,7 +87,7 @@ export class DoHProxy extends BaseProxy {
       reader.releaseLock();
       await socket.close();
 
-      // 5. 剥离HTTP响应头，提取Body，只返回DNS响应结果
+      // 5. HTTP yanıt başlığını soy, Gövdeyi çıkar, yalnızca DNS yanıt sonucunu döndür
       const separator = new Uint8Array([13, 10, 13, 10]);
       let separatorIndex = -1;
       for (let i = 0; i < responseBytes.length - 3; i++) {
@@ -104,19 +104,19 @@ export class DoHProxy extends BaseProxy {
 
       const dnsResponseBody = responseBytes.slice(separatorIndex + 4);
 
-      // 返回DNS响应
+      // DNS yanıtını döndür
       return new Response(dnsResponseBody, {
         headers: { 'content-type': 'application/dns-message' },
       });
     } catch (error) {
-      // socket策略失败时，回退到fetch策略
+      // soket stratejisi başarısız olduğunda, fetch stratejisine geri dön
       try {
         const fallbackProxy = new FetchProxy(this.config);
-        // 不能重用原始请求，它的主体已被读取。我们使用已有的主体数据创建一个新的请求。
+        // Orijinal istek yeniden kullanılamaz, gövdesi zaten okunmuş. Mevcut gövde verilerini kullanarak yeni bir istek oluşturuyoruz.
         const fallbackRequest = new Request(req.url, {
             method: req.method,
             headers: req.headers,
-            body: clientDnsQuery // 之前读取的缓冲区
+            body: clientDnsQuery // Daha önce okunan arabellek
         });
         return await fallbackProxy.handleDnsQuery(fallbackRequest);
       } catch (fallbackError) {
@@ -126,35 +126,35 @@ export class DoHProxy extends BaseProxy {
   }
 
   /**
-   * 连接目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * Hedef sunucuya bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connect(req, dstUrl) {
-    // DoH代理专门处理DNS查询请求
+    // DoH proxy'si yalnızca DNS sorgu isteklerini işler
     return await this.handleDnsQuery(req);
   }
 
   /**
-   * 连接HTTP目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * HTTP hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttp(req, dstUrl) {
-    // DoH代理专门处理DNS查询请求
+    // DoH proxy'si yalnızca DNS sorgu isteklerini işler
     return await this.handleDnsQuery(req);
   }
 
   /**
-   * 连接WebSocket目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * WebSocket hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectWebSocket(req, dstUrl) {
-    // DoH代理不支持WebSocket
+    // DoH proxy'si WebSocket'i desteklemez
     return new Response("DoH proxy does not support WebSocket", { status: 400 });
   }
 }

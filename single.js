@@ -1,28 +1,28 @@
 /**
  * SpectreProxy
- * 支持的代理策略：
- * - socket: 使用Cloudflare Socket API (默认)
- * - fetch: 使用Fetch API
- * - socks5: 使用SOCKS5代理
- * - thirdparty: 使用第三方代理服务
- * - cloudprovider: 使用其他云服务商函数
- * 环境变量配置：
- * - AUTH_TOKEN: 认证令牌，务必修改
- * - PROXY_STRATEGY: 主代理策略 (默认: "socket")
- * - FALLBACK_PROXY_STRATEGY: 备用代理策略 (默认: "fetch")
- * - DEBUG_MODE: 调试模式 (默认: false)
- * - SOCKS5_ADDRESS: SOCKS5代理地址
- * - THIRD_PARTY_PROXY_URL: 第三方代理URL
- * - CLOUD_PROVIDER_URL: 云服务商函数URL
- * - DOH_SERVER_HOSTNAME: DoH服务器主机名 (默认: "dns.google")
- * - DOT_SERVER_HOSTNAME: DoT服务器主机名 (默认: "dns.google")
+ * Desteklenen proxy stratejileri:
+ * - socket: Cloudflare Soket API'sini kullanır (varsayılan)
+ * - fetch: Fetch API'sini kullanır
+ * - socks5: SOCKS5 proxy'sini kullanır
+ * - thirdparty: Üçüncü taraf proxy hizmetlerini kullanır
+ * - cloudprovider: Diğer bulut sağlayıcı işlevlerini kullanır
+ * Ortam değişkeni yapılandırması:
+ * - AUTH_TOKEN: Kimlik doğrulama belirteci, değiştirilmesi gerekir
+ * - PROXY_STRATEGY: Ana proxy stratejisi (varsayılan: "socket")
+ * - FALLBACK_PROXY_STRATEGY: Yedek proxy stratejisi (varsayılan: "fetch")
+ * - DEBUG_MODE: Hata ayıklama modu (varsayılan: false)
+ * - SOCKS5_ADDRESS: SOCKS5 proxy adresi
+ * - THIRD_PARTY_PROXY_URL: Üçüncü taraf proxy URL'si
+ * - CLOUD_PROVIDER_URL: Bulut sağlayıcı işlev URL'si
+ * - DOH_SERVER_HOSTNAME: DoH sunucu ana bilgisayar adı (varsayılan: "dns.google")
+ * - DOT_SERVER_HOSTNAME: DoT sunucu ana bilgisayar adı (varsayılan: "dns.google")
  */
 
 import { connect } from 'cloudflare:sockets';
 
 class ConfigManager {
   static DEFAULT_CONFIG = {
-    AUTH_TOKEN: "your-auth-token",//认证令牌，务必在此修改或添加环境变量
+    AUTH_TOKEN: "your-auth-token",//Kimlik doğrulama belirteci, burada değiştirilmeli veya ortam değişkeni olarak eklenmelidir
     DEFAULT_DST_URL: "https://httpbin.org/get",
     DEBUG_MODE: false,
     PROXY_STRATEGY: "socket",
@@ -431,7 +431,7 @@ class SocketProxy extends BaseProxy {
   async connectWebSocket(req, dstUrl) {
     const targetUrl = new URL(dstUrl);
     
-    if (!/^wss?:\/\//i.test(dstUrl)) {
+    if (!/^wss?:\/\/i.test(dstUrl)) {
       return new Response("Target does not support WebSocket", { status: 400 });
     }
     
@@ -667,7 +667,7 @@ class Socks5Proxy extends BaseProxy {
   async connectWebSocket(req, dstUrl) {
     const targetUrl = new URL(dstUrl);
     
-    if (!/^wss?:\/\//i.test(dstUrl)) {
+    if (!/^wss?:\/\/i.test(dstUrl)) {
       return new Response("Target does not support WebSocket", { status: 400 });
     }
     
@@ -861,7 +861,7 @@ class Socks5Proxy extends BaseProxy {
       throw new Error('Invalid SOCKS address format');
     }
     hostname = latters.join(":");
-    const regex = /^\[.*\]$/;
+    const regex = /^\.*\]$/;
     if (hostname.includes(":") && !regex.test(hostname)) {
       throw new Error('Invalid SOCKS address format');
     }

@@ -7,14 +7,14 @@ import { DoHProxy } from './proxies/doh.js';
 import { DoTProxy } from './proxies/dot.js';
 
 /**
- * 代理工厂类
- * 根据配置创建相应的代理实例
+ * Proxy Fabrikası Sınıfı
+ * Yapılandırmaya göre ilgili proxy örneğini oluşturur
  */
 export class ProxyFactory {
   /**
-   * 创建代理实例
-   * @param {object} config - 配置对象
-   * @returns {BaseProxy} 代理实例
+   * Proxy örneği oluşturur
+   * @param {object} config - Yapılandırma nesnesi
+   * @returns {BaseProxy} Proxy örneği
    */
   static createProxy(config) {
     const strategy = config.PROXY_STRATEGY || 'socket';
@@ -35,7 +35,7 @@ export class ProxyFactory {
       case 'dot':
         return new DoTProxy(config);
       default:
-        // 默认Socket代理
+        // Varsayılan Soket proxy'si
         return new SocketProxy(config);
     }
   }

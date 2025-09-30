@@ -2,35 +2,35 @@ import { ConfigManager } from './config.js';
 import { ProxyFactory } from './proxy-factory.js';
 
 /**
- * ShadowProxy Main
- * 负责处理请求并根据配置选择合适的代理策略
+ * ShadowProxy Ana
+ * İstekleri işlemekten ve yapılandırmaya göre uygun proxy stratejisini seçmekten sorumlu
  */
 export class ShadowProxy {
   /**
-   * 处理请求的入口
-   * @param {Request} req - 请求对象
-   * @param {object} env - 环境变量
-   * @param {object} ctx - 上下文对象
-   * @returns {Promise<Response>} 响应对象
+   * İstekleri işlemek için giriş noktası
+   * @param {Request} req - İstek nesnesi
+   * @param {object} env - Ortam değişkenleri
+   * @param {object} ctx - Bağlam nesnesi
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   static async handleRequest(req, env, ctx) {
     try {
-      // 更新配置
+      // Yapılandırmayı güncelle
       const config = ConfigManager.updateConfigFromEnv(env);
       
-      // 解析请求路径
+      // İstek yolunu ayrıştır
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean);
       
-      // 检查是否为DNS查询请求
+      // DNS sorgu isteği olup olmadığını kontrol et
       if (parts.length >= 3 && parts[1] === 'dns') {
         const auth = parts[0];
-        const dnsType = parts[2]; // DNS类型: DOH/DOT
-        const server = parts[3]; // 可选服务器地址，否则使用默认DOH/DOT服务器
+        const dnsType = parts[2]; // DNS türü: DOH/DOT
+        const server = parts[3]; // İsteğe bağlı sunucu adresi, aksi takdirde varsayılan DOH/DOT sunucusunu kullan
         
-        // 验证AuthToken
+        // AuthToken'i doğrula
         if (auth === config.AUTH_TOKEN) {
-          // 根据DNS类型选择代理策略
+          // DNS türüne göre proxy stratejisi seç
           let proxyStrategy = config.PROXY_STRATEGY;
           if (dnsType === 'doh') {
             proxyStrategy = 'doh';
@@ -38,22 +38,22 @@ export class ShadowProxy {
             proxyStrategy = 'dot';
           }
           
-          // 更新配置以使用相应的DNS代理策略
+          // İlgili DNS proxy stratejisini kullanmak için yapılandırmayı güncelle
           const dnsConfig = { ...config, PROXY_STRATEGY: proxyStrategy };
           const proxy = ProxyFactory.createProxy(dnsConfig);
           
-          // 处理DNS查询请求
+          // DNS sorgu isteğini işle
           return await proxy.handleDnsQuery(req);
         }
       }
       
-      // 创建默认代理实例
+      // Varsayılan proxy örneği oluştur
       const proxy = ProxyFactory.createProxy(config);
       
-      // 解析目标URL
+      // Hedef URL'yi ayrıştır
       const dstUrl = this.parseDestinationUrl(req, config);
       
-      // 使用代理连接目标服务器
+      // Hedef sunucuya bağlanmak için proxy kullan
       return await proxy.connect(req, dstUrl);
     } catch (error) {
       console.error("ShadowProxy error:", error);
@@ -62,23 +62,23 @@ export class ShadowProxy {
   }
 
   /**
-   * 解析目标URL
-   * @param {Request} req - 请求对象
-   * @param {object} config - 配置对象
-   * @returns {string} 目标URL
+   * Hedef URL'yi ayrıştırır
+   * @param {Request} req - İstek nesnesi
+   * @param {object} config - Yapılandırma nesnesi
+   * @returns {string} Hedef URL
    */
   static parseDestinationUrl(req, config) {
     const url = new URL(req.url);
     const parts = url.pathname.split("/").filter(Boolean);
     const [auth, protocol, ...path] = parts;
 
-    // 检查authtoken
+    // authtoken'i kontrol et
     const isValid = auth === config.AUTH_TOKEN;
     
     let dstUrl = config.DEFAULT_DST_URL;
 
     if (isValid && protocol) {
-      // Handle cases where the protocol from the path might be "https:" or "https"
+      // Yoldan gelen protokolün "https:" veya "https" olabileceği durumları işle
       if (protocol.endsWith(':')) {
         dstUrl = `${protocol}//${path.join("/")}${url.search}`;
       } else {
@@ -86,7 +86,7 @@ export class ShadowProxy {
       }
     }
     
-    // 如果启用了调试模式，记录目标URL
+    // Hata ayıklama modu etkinse, hedef URL'yi günlüğe kaydet
     if (config.DEBUG_MODE) {
       console.log("Target URL", dstUrl);
     }

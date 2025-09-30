@@ -1,25 +1,25 @@
 import { connect } from "cloudflare:sockets";
 /**
  * AI Gateway with Proxy IP Fallback 
- * 功能：随机UA，随机Accept-Language，dns解析，主连接使用socket直连，fallback使用cf反代ip（采取SNI PROXY的方式）
- * SNI PROXY：以原始域名作为SNI 进行TLS握手，但将IP地址改为ProxyIP
- * 轮询proxyIP的方案：使用dns解析域名的A记录，随机选取一个IP作为ProxyIP
- * 暂时无法使用，遇到了暂时无法解决的问题（分离 TCP 连接和 TLS 握手失败，未找到长期稳定可以获取，更新ProxyIP的方法）
+ * İşlevler: Rastgele UA, Rastgele Accept-Language, DNS çözümlemesi, ana bağlantı için doğrudan soket bağlantısı, geri dönüş için CF ters proxy IP'si (SNI PROXY yöntemiyle)
+ * SNI PROXY: TLS el sıkışması için orijinal alan adını SNI olarak kullanır, ancak IP adresini ProxyIP ile değiştirir.
+ * proxyIP'yi yoklama yöntemi: Alan adının A kaydını çözümlemek için DNS kullanın ve bir IP'yi rastgele ProxyIP olarak seçin.
+ * Şu anda kullanılamıyor, çözülemeyen sorunlarla karşılaşıldı (TCP bağlantısı ve TLS el sıkışması ayrılamadı, uzun süreli istikrarlı bir şekilde ProxyIP'yi elde etme ve güncelleme yöntemi bulunamadı)
  */
-// 全局配置
+// Genel yapılandırma
 const DEFAULT_CONFIG = {
   AUTH_TOKEN: "defaulttoken",
   DEFAULT_DST_URL: "https://httpbin.org/get",
   DEBUG_MODE: true,
   ENABLE_UA_RANDOMIZATION: true,
-  ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION: false, // 随机 Accept-Language
-  PROXY_DOMAINS: [""], // CF反代IP域名列表
+  ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION: false, // Rastgele Accept-Language
+  PROXY_DOMAINS: [""], // CF ters proxy IP alan adı listesi
 };
 
-// 使用默认配置创建可更新的副本
+// Varsayılan yapılandırma ile güncellenebilir bir kopya oluşturun
 let CONFIG = { ...DEFAULT_CONFIG };
 
-// 从环境变量更新配置
+// Ortam değişkenlerinden yapılandırmayı güncelleyin
 function updateConfigFromEnv(env) {
   if (!env) return;
   for (const key of Object.keys(CONFIG)) {
@@ -37,21 +37,21 @@ function updateConfigFromEnv(env) {
   }
 }
 
-// 文本编码器/解码器
+// Metin kodlayıcı/kod çözücü
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// 忽略的请求头正则
+// Yoksayılan istek başlığı regex'i
 const HEADER_FILTER_RE = /^(host|cf-|cdn-|referer|referrer)/i;
 
-// 日志函数
+// Günlük fonksiyonu
 let log = () => {};
 
-// 管理器实例
+// Yönetici örneği
 let userAgentManager;
 
 /**
- * User-Agent 管理器，存储一些常用的UA供随机化使用
+ * User-Agent yöneticisi, rastgeleleştirme için sık kullanılan UA'ları saklar
  */
 class UserAgentManager {
   constructor() {
@@ -69,7 +69,7 @@ class UserAgentManager {
     ];
     this.currentIndex = Math.floor(Math.random() * this.userAgents.length);
     
-    // Accept-Language 值列表
+    // Accept-Language değer listesi
     this.acceptLanguages = [
       'zh-CN,zh;q=0.9,en;q=0.8',
       'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -86,14 +86,14 @@ class UserAgentManager {
     ];
   }
 
-  // 随机UA
+  // Rastgele UA
   getRandomUserAgent() {
     if (!CONFIG.ENABLE_UA_RANDOMIZATION) return null;
     this.currentIndex = (this.currentIndex + 1 + Math.floor(Math.random() * 2)) % this.userAgents.length;
     return this.userAgents[this.currentIndex];
   }
   
-  // 兼容UA方法
+  // Uyumlu UA yöntemi
   getCompatibleUserAgent(originalUA) {
     if (!CONFIG.ENABLE_UA_RANDOMIZATION || !originalUA) return null;
     const isWindows = /Windows/.test(originalUA);
@@ -112,7 +112,7 @@ class UserAgentManager {
     return compatibleAgents[Math.floor(Math.random() * compatibleAgents.length)];
   }
   
-  // 随机Accept-Language
+  // Rastgele Accept-Language
   getRandomAcceptLanguage() {
     if (!CONFIG.ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION) return null;
     return this.acceptLanguages[Math.floor(Math.random() * this.acceptLanguages.length)];
@@ -120,9 +120,9 @@ class UserAgentManager {
 }
 
 
-// 创建新连接的辅助函数
+// Yeni bağlantı oluşturma yardımcı fonksiyonu
 async function createNewConnection(hostname, port, isSecure) {
-  log(`创建新连接 ${hostname}:${port}`);
+  log(`Yeni bağlantı oluşturuluyor ${hostname}:${port}`);
 
   return await connect(
     { hostname, port: Number(port) },
@@ -134,12 +134,12 @@ async function createNewConnection(hostname, port, isSecure) {
 }
 
 
-// 初始化管理器
+// Yöneticileri başlat
 function initializeManagers() {
   if (!userAgentManager) userAgentManager = new UserAgentManager();
 }
 
-// 连接Uint8Array
+// Uint8Array'leri birleştir
 function concatUint8Arrays(...arrays) {
   const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
   const result = new Uint8Array(total);
@@ -151,7 +151,7 @@ function concatUint8Arrays(...arrays) {
   return result;
 }
 
-// 解析HTTP头部
+// HTTP başlıklarını ayrıştır
 function parseHttpHeaders(buff) {
   try {
     const text = decoder.decode(buff);
@@ -161,7 +161,7 @@ function parseHttpHeaders(buff) {
     const headerSection = text.slice(0, headerEnd).split("\r\n");
     const statusLine = headerSection[0];
     const statusMatch = statusLine.match(/HTTP\/1\.[01] (\d+) (.*)/);
-    if (!statusMatch) throw new Error(`无效状态行: ${statusLine}`);
+    if (!statusMatch) throw new Error(`Geçersiz durum satırı: ${statusLine}`);
     
     const headers = new Headers();
     for (let i = 1; i < headerSection.length; i++) {
@@ -177,12 +177,12 @@ function parseHttpHeaders(buff) {
       headerEnd
     };
   } catch (error) {
-    log('解析HTTP头部错误:', error);
+    log('HTTP başlıklarını ayrıştırma hatası:', error);
     throw error;
   }
 }
 
-// 读取直到双CRLF
+// Çift CRLF'ye kadar oku
 async function readUntilDoubleCRLF(reader) {
   let respText = "";
   while (true) {
@@ -194,11 +194,11 @@ async function readUntilDoubleCRLF(reader) {
   return respText;
 }
 
-// 读取分块数据
+// Parçalı verileri oku
 async function* readChunks(reader, buff = new Uint8Array()) {
   while (true) {
     let pos = -1;
-    // 寻找分块大小行结束的 CRLF
+    // Parça boyut satırı sonunu belirten CRLF'yi arayın
     for (let i = 0; i < buff.length - 1; i++) {
       if (buff[i] === 13 && buff[i+1] === 10) { // CR LF
         pos = i;
@@ -206,10 +206,10 @@ async function* readChunks(reader, buff = new Uint8Array()) {
       }
     }
     
-    // 如果找不到，说明分块大小行不完整，需要从socket读取更多数据
+    // Bulunamazsa, parça boyut satırı eksik demektir, soketten daha fazla veri okumak gerekir
     if (pos === -1) {
       const { value, done } = await reader.read();
-      if (done) break; // 流结束
+      if (done) break; // Akış sonu
       buff = concatUint8Arrays(buff, value);
       continue;
     }
@@ -217,55 +217,55 @@ async function* readChunks(reader, buff = new Uint8Array()) {
     const sizeHex = decoder.decode(buff.slice(0, pos));
     const size = parseInt(sizeHex, 16);
     
-    // 如果大小为0，表示是最后一个分块，流结束
+    // Boyut 0 ise, son parçadır, akış sonu
     if (isNaN(size) || size === 0) {
-      log("读取到最后一个分块 (size=0)，流结束");
+      log("Son parçaya ulaşıldı (boyut=0), akış sonu");
       break;
     }
     
-    // 移除大小行和CRLF
+    // Boyut satırını ve CRLF'yi kaldır
     buff = buff.slice(pos + 2);
     
-    // 循环读取直到获得完整的一个数据块
-    while (buff.length < size + 2) { // +2 是为了数据块末尾的CRLF
+    // Tam bir veri bloğu elde edilene kadar döngüsel olarak oku
+    while (buff.length < size + 2) { // +2 veri bloğunun sonundaki CRLF içindir
       const { value, done } = await reader.read();
-      if (done) throw new Error("分块编码中意外结束");
+      if (done) throw new Error("Parçalı kodlamada beklenmeyen sonlanma");
       buff = concatUint8Arrays(buff, value);
     }
     
-    // 提取纯数据块 (payload)
+    // Ham veri bloğunu çıkar (payload)
     const chunkData = buff.slice(0, size);
     yield chunkData;
     
-    // 移除已处理的数据块和它末尾的CRLF
+    // İşlenen veri bloğunu ve sonundaki CRLF'yi kaldır
     buff = buff.slice(size + 2);
   }
 }
 
-// 解析响应
+// Yanıtı ayrıştır
 async function parseResponse(reader, targetHost, targetPort, socket) {
   let buff = new Uint8Array();
   
   try {
-    // 循环读取，直到解析出完整的HTTP头部
+    // Tam HTTP başlığı ayrıştırılana kadar döngüsel olarak oku
     while (true) {
       const { value, done } = await reader.read();
       if (value) buff = concatUint8Arrays(buff, value);
       
-      // 如果流结束但缓冲区为空，则退出
+      // Akış biter ancak arabellek boşsa çık
       if (done && !buff.length) {
-         throw new Error("无法解析响应：流提前结束且无数据");
+         throw new Error("Yanıt ayrıştırılamadı: Akış erken bitti ve veri yok");
       }
       
       const parsed = parseHttpHeaders(buff);
       if (parsed) {
         const { status, statusText, headers, headerEnd } = parsed;
         
-        // 关键逻辑：检查是分块编码还是定长编码
+        // Anahtar mantık: Parçalı kodlama mı yoksa sabit uzunlukta kodlama mı olduğunu kontrol et
         const isChunked = headers.get("transfer-encoding")?.toLowerCase().includes("chunked");
         const contentLength = parseInt(headers.get("content-length") || "0", 10);
         
-        // 提取HTTP头部之后的数据，这部分是响应体的开始
+        // HTTP başlığından sonraki verileri çıkar, bu kısım yanıt gövdesinin başlangıcıdır.
         const initialBodyData = buff.slice(headerEnd + 4);
         
         return new Response(
@@ -273,24 +273,24 @@ async function parseResponse(reader, targetHost, targetPort, socket) {
             async start(ctrl) {
               try {
                 if (isChunked) {
-                  // 如果是分块编码，使用 readChunks 生成器进行解析
-                  log("响应模式：分块编码 (Chunked)");
+                  // Eğer parçalı kodlamaysa, ayrıştırmak için readChunks jeneratörünü kullanın
+                  log("Yanıt Modu: Parçalı Kodlama (Chunked)");
                   for await (const chunk of readChunks(reader, initialBodyData)) {
                     ctrl.enqueue(chunk);
                   }
                 } else {
-                  // 如果是定长编码，按长度读取
-                  log(`响应模式：定长 (Content-Length: ${contentLength})`);
+                  // Eğer sabit uzunlukta kodlamaysa, uzunluğa göre oku
+                  log(`Yanıt Modu: Sabit Uzunluk (Content-Length: ${contentLength})`);
                   let receivedLength = initialBodyData.length;
                   if (initialBodyData.length > 0) {
                     ctrl.enqueue(initialBodyData);
                   }
                   
-                  // 循环读取直到满足 Content-Length
+                  // Content-Length karşılanana kadar döngüsel olarak oku
                   while (receivedLength < contentLength) {
                     const { value, done } = await reader.read();
                     if (done) {
-                        log("警告：流在达到Content-Length之前结束");
+                        log("Uyarı: Akış Content-Length'e ulaşmadan bitti");
                         break;
                     }
                     receivedLength += value.length;
@@ -298,20 +298,20 @@ async function parseResponse(reader, targetHost, targetPort, socket) {
                   }
                 }
                 
-                // 所有数据处理完毕
+                // Tüm veriler işlendi
                 ctrl.close();
               } catch (err) {
-                log("流式响应处理错误", err);
+                log("Akış yanıtı işleme hatası", err);
                 ctrl.error(err);
               } finally {
-                // 确保socket被关闭
+                // Soketin kapatıldığından emin olun
                 if (socket && !socket.closed) {
                   socket.close();
                 }
               }
             },
             cancel() {
-              log("流被客户端取消");
+              log("Akış istemci tarafından iptal edildi");
               if (socket && !socket.closed) {
                 socket.close();
               }
@@ -320,30 +320,30 @@ async function parseResponse(reader, targetHost, targetPort, socket) {
           { status, statusText, headers }
         );
       }
-      // 如果流结束了还没解析出头部，抛出错误
+      // Akış bitti ancak başlık henüz ayrıştırılmadıysa hata fırlat
       if (done) {
-        throw new Error("无法解析响应头：流已结束");
+        throw new Error("Yanıt başlığı ayrıştırılamadı: Akış bitti");
       }
     }
   } catch (error) {
-    log("解析响应时发生错误", error);
+    log("Yanıt ayrıştırılırken hata oluştu", error);
     if (socket && !socket.closed) {
       socket.close();
     }
-    // 重新抛出错误，让上层捕获
+    // Hatayı üst katmana yakalamak için tekrar fırlat
     throw error;
   }
 }
 
 
 /**
- * 为给定的域名构建一个DNS查询消息。
- * @param {string} domain 要查询的域名。
- * @returns {Uint8Array} DNS查询消息。
+ * Verilen alan adı için bir DNS sorgu mesajı oluşturur.
+ * @param {string} domain Sorgulanacak alan adı.
+ * @returns {Uint8Array} DNS sorgu mesajı.
  */
 function buildDnsQuery(domain) {
   const header = new Uint8Array([
-    Math.floor(Math.random() * 256), Math.floor(Math.random() * 256), // 事务ID
+    Math.floor(Math.random() * 256), Math.floor(Math.random() * 256), // İşlem Kimliği
     0x01, 0x00, 
     0x00, 0x01, 
     0x00, 0x00, 
@@ -360,48 +360,48 @@ function buildDnsQuery(domain) {
       question[offset++] = label.charCodeAt(i);
     }
   }
-  question[offset++] = 0; // 域名结束
+  question[offset++] = 0; // Alan adı sonu
 
-  // 查询类型 (A) 和类 (IN)
+  // Sorgu türü (A) ve sınıfı (IN)
   question[offset++] = 0x00;
-  question[offset++] = 0x01; // 类型 A
+  question[offset++] = 0x01; // Tip A
   question[offset++] = 0x00;
-  question[offset++] = 0x01; // 类 IN
+  question[offset++] = 0x01; // Sınıf IN
 
   return concatUint8Arrays(header, question.slice(0, offset));
 }
 
 /**
- * 从二进制DNS响应中解析IP地址。
- * @param {Uint8Array} buffer 包含DNS响应的缓冲区。
- * @returns {string[]} 从A记录中提取的IP地址数组。
+ * İkili DNS yanıtından IP adreslerini ayrıştırır.
+ * @param {Uint8Array} buffer DNS yanıtını içeren arabellek.
+ * @returns {string[]} A kayıtlarından çıkarılan IP adreslerinin dizisi.
  */
 function parseDnsResponse(buffer) {
   const dataView = new DataView(buffer.buffer);
   const answerCount = dataView.getUint16(6);
-  let offset = 12; // 跳过头部
+  let offset = 12; // Başlığı atla
   
-  // 跳过问题部分
+  // Soru bölümünü atla
   while (buffer[offset] !== 0) {
-    if (offset > buffer.length) return []; // 防止死循环
+    if (offset > buffer.length) return []; // Sonsuz döngüyü önle
     offset += buffer[offset] + 1;
   }
-  offset += 5; // 跳过问题末尾的0字节和类型/类
+  offset += 5; // Soru sonundaki 0 baytını ve türü/sınıfı atla
 
   const addresses = [];
   for (let i = 0; i < answerCount; i++) {
     if (offset + 12 > buffer.length) break;
 
-    // 跳过名称（通常是指针，占2字节）
+    // Adı atla (genellikle işaretçi, 2 bayt)
     offset += 2;
     
     const type = dataView.getUint16(offset);
-    offset += 2; // 跳过类型
-    offset += 6; // 跳过类和TTL
+    offset += 2; // Türü atla
+    offset += 6; // Sınıfı ve TTL'yi atla
     const rdLength = dataView.getUint16(offset);
-    offset += 2; // 跳过rdLength
+    offset += 2; // rdLength'i atla
 
-    if (type === 1 && rdLength === 4) { // A记录
+    if (type === 1 && rdLength === 4) { // A kaydı
       addresses.push(`${buffer[offset]}.${buffer[offset+1]}.${buffer[offset+2]}.${buffer[offset+3]}`);
     }
     offset += rdLength;
@@ -411,12 +411,12 @@ function parseDnsResponse(buffer) {
 }
 
 /**
- * 查询域名的A记录，并从结果中随机返回一个IP。
- * @param {string} domain 要查询的域名。
- * @returns {Promise<string|null>} 一个随机的IP地址，如果找不到则返回null。
+ * Bir alan adının A kayıtlarını sorgular ve sonuçlardan rastgele bir IP döndürür.
+ * @param {string} domain Sorgulanacak alan adı.
+ * @returns {Promise<string|null>} Rastgele bir IP adresi, bulunamazsa null döndürür.
  */
 async function resolveDomainRandomIP(domain) {
-  log(`为域执行二进制DNS查询: ${domain}`);
+  log(`Alan için ikili DNS sorgusu yürütülüyor: ${domain}`);
   const query = buildDnsQuery(domain);
   try {
     const response = await fetch('https://1.1.1.1/dns-query', {
@@ -425,30 +425,30 @@ async function resolveDomainRandomIP(domain) {
       body: query,
     });
     if (!response.ok) {
-      throw new Error(`DNS查询失败，状态为 ${response.status}`);
+      throw new Error(`DNS sorgusu başarısız oldu, durum: ${response.status}`);
     }
     const addresses = parseDnsResponse(new Uint8Array(await response.arrayBuffer()));
     if (addresses.length === 0) {
-      log(`未找到域 ${domain} 的A记录`);
+      log(`Alan ${domain} için A kaydı bulunamadı`);
       return null;
     }
     const randomIP = addresses[Math.floor(Math.random() * addresses.length)];
-    log(`为 ${domain} 解析到随机IP: ${randomIP}`);
+    log(`${domain} için rastgele IP çözümlendi: ${randomIP}`);
     return randomIP;
   } catch (error) {
-    log('二进制DNS解析错误:', error);
+    log('İkili DNS çözümleme hatası:', error);
     throw error;
   }
 }
 
 /**
- * 辅助函数，通过socket发送HTTP请求
- * @param {string} hostname - 目标主机名或IP
- * @param {number} port - 目标端口
- * @param {boolean} isSecure - 是否使用TLS
- * @param {Request} req - 原始请求对象
- * @param {Headers} headers - 清理和修改后的请求头
- * @param {URL} targetUrl - 目标URL对象
+ * Yardımcı fonksiyon, HTTP isteklerini soket aracılığıyla gönderir
+ * @param {string} hostname - Hedef ana bilgisayar adı veya IP
+ * @param {number} port - Hedef bağlantı noktası
+ * @param {boolean} isSecure - TLS kullanılıp kullanılmayacağı
+ * @param {Request} req - Orijinal istek nesnesi
+ * @param {Headers} headers - Temizlenmiş ve değiştirilmiş istek başlıkları
+ * @param {URL} targetUrl - Hedef URL nesnesi
  * @returns {Promise<Response>}
  */
 async function sendRequestViaSocket(hostname, port, isSecure, req, headers, targetUrl) {
@@ -458,7 +458,7 @@ async function sendRequestViaSocket(hostname, port, isSecure, req, headers, targ
     const requestLine = `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
       Array.from(headers.entries()).map(([k, v]) => `${k}: ${v}`).join("\r\n") + "\r\n\r\n";
     
-    log(`通过 socket 发送请求到 ${hostname}:${port}`);
+    log(`Soket aracılığıyla ${hostname}:${port} adresine istek gönderiliyor`);
     await writer.write(encoder.encode(requestLine));
     
     if (req.body) {
@@ -472,16 +472,16 @@ async function sendRequestViaSocket(hostname, port, isSecure, req, headers, targ
     if (!socket.closed) {
       socket.close();
     }
-    // 重新抛出错误，让调用者处理
+    // Hatayı işlemek için çağırana yeniden fırlat
     throw error;
   }
 }
 
 /**
- * 原生HTTP请求
+ * Yerel HTTP isteği
  */
 async function nativeFetch(req, dstUrl) {
-  // 清理请求头和应用随机化
+  // İstek başlıklarını temizle ve rastgeleleştirme uygula
   const cleanedHeaders = new Headers();
   for (const [k, v] of req.headers) {
     if (!HEADER_FILTER_RE.test(k)) cleanedHeaders.set(k, v);
@@ -490,14 +490,14 @@ async function nativeFetch(req, dstUrl) {
   const randomUA = userAgentManager.getCompatibleUserAgent(req.headers.get('user-agent'));
   if (randomUA) {
     cleanedHeaders.set('User-Agent', randomUA);
-    log('使用User-Agent:', randomUA);
+    log('User-Agent kullanılıyor:', randomUA);
   }
 
   if (CONFIG.ENABLE_ACCEPT_LANGUAGE_RANDOMIZATION) {
     const randomLang = userAgentManager.getRandomAcceptLanguage();
     if (randomLang) {
       cleanedHeaders.set('Accept-Language', randomLang);
-      log('使用Accept-Language:', randomLang);
+      log('Accept-Language kullanılıyor:', randomLang);
     }
   }
 
@@ -505,76 +505,76 @@ async function nativeFetch(req, dstUrl) {
   const port = targetUrl.port || (targetUrl.protocol === "https:" ? 443 : 80);
   const isSecure = targetUrl.protocol === "https:";
 
-  // 设置主机头
+  // Host başlığını ayarla
   cleanedHeaders.set("Host", targetUrl.hostname);
   cleanedHeaders.set("Connection", "close");
 
-  // 克隆请求
+  // İsteği klonla
   const reqForFallback = req.clone();
 
   try {
-    // 尝试直接连接
-    log(`尝试直接连接到 ${targetUrl.hostname}:${port}`);
+    // Doğrudan bağlanmayı dene
+    log(`${targetUrl.hostname}:${port} adresine doğrudan bağlanılmaya çalışılıyor`);
     return await sendRequestViaSocket(targetUrl.hostname, port, isSecure, req, cleanedHeaders, targetUrl);
   } catch (error) {
-    log('直接 socket 连接失败，尝试 Fallback:', error.message);
+    log('Doğrudan soket bağlantısı başarısız oldu, geri dönüş deneniyor:', error.message);
     
-    //Fallback 逻辑
+    //Geri dönüş mantığı
     if (CONFIG.PROXY_DOMAINS && CONFIG.PROXY_DOMAINS.length > 0) {
       const randomDomain = CONFIG.PROXY_DOMAINS[Math.floor(Math.random() * CONFIG.PROXY_DOMAINS.length)];
       const proxyIP = await resolveDomainRandomIP(randomDomain);
 
       if (proxyIP) {
-        log(`使用代理IP ${proxyIP} (来自 ${randomDomain}) 进行 Fallback 连接`);
+        log(`Geri dönüş bağlantısı için proxy IP ${proxyIP} (kaynak: ${randomDomain}) kullanılıyor`);
         try {
-          // 使用克隆的请求进行 fallback
+          // Geri dönüş için klonlanmış isteği kullan
           return await sendRequestViaSocket(proxyIP, port, isSecure, reqForFallback, cleanedHeaders, targetUrl);
         } catch (proxyError) {
-          log('ProxyIP连接失败:', proxyError.message);
-          // 抛出原始错误以保持一致性
+          log('Proxy IP bağlantısı başarısız oldu:', proxyError.message);
+          // Tutarlılığı korumak için orijinal hatayı tekrar fırlat
           throw error;
         }
       } else {
-        log(`无法为 ${randomDomain} 解析IP，Fallback 失败`);
+        log(`${randomDomain} için IP çözümlenemedi, geri dönüş başarısız oldu`);
       }
     }
     
-    // 如果没有 fallback 选项或 fallback 失败，重新抛出原始错误
+    // Geri dönüş seçeneği yoksa veya geri dönüş başarısız olursa, orijinal hatayı tekrar fırlat
     throw error;
   }
 }
 
 
 /**
- * 请求处理入口
+ * İstek işleme girişi
  */
 async function handleRequest(req, env) {
-  // 克隆并更新配置（避免污染全局状态）
+  // Yapılandırmayı klonla ve güncelle (genel durumu kirletmekten kaçınmak için)
   CONFIG = { ...DEFAULT_CONFIG, ...env };
   updateConfigFromEnv(env);
   
-  // 初始化管理器
+  // Yöneticileri başlat
   initializeManagers();
   
-  // 设置日志
+  // Günlüğü ayarla
   log = CONFIG.DEBUG_MODE
     ? (message, data = "") => console.log(`[${new Date().toISOString()}] ${message}`, data)
     : () => {};
   
   const url = new URL(req.url);
   
-  // 路由处理
+  // Yönlendirme işlemesi
   try {
     const pathSegments = url.pathname.split('/').filter(Boolean);
 
-    // 如果路径为空, 则请求默认目标地址
+    // Eğer yol boşsa, varsayılan hedef adrese istek gönder
     if (pathSegments.length === 0) {
-      log("无路径请求，转发至默认URL", CONFIG.DEFAULT_DST_URL);
+      log("Yolsuz istek, varsayılan URL'ye yönlendiriliyor", CONFIG.DEFAULT_DST_URL);
       const dstUrl = CONFIG.DEFAULT_DST_URL + url.search;
       return await nativeFetch(req, dstUrl);
     }
     if (authToken === "defaulttoken") {
-      const msg = "请修改默认AUTH_TOKEN，建议随机字符串10位以上";
+      const msg = "Lütfen varsayılan AUTH_TOKEN'ı değiştirin, 10 karakterden uzun rastgele bir dize önerilir";
       log(msg);
       return new Response(msg, { status: 401 });
     }
@@ -582,35 +582,35 @@ async function handleRequest(req, env) {
     const authToken = pathSegments[0];
     const hasTargetUrl = pathSegments.length >= 2;
 
-    // 如果鉴权令牌不匹配或缺少目标URL
+    // Eğer kimlik doğrulama belirteci eşleşmezse veya hedef URL eksikse
     if (authToken !== CONFIG.AUTH_TOKEN || !hasTargetUrl) {
-      const msg = "Invalid path. Expected `/{authtoken}/{target_url}`. please check authentictoken or targeturl";
+      const msg = "Geçersiz yol. `/{authtoken}/{target_url}` bekleniyor. lütfen kimlik doğrulama belirtecinizi veya hedef URL'yi kontrol edin";
       log(msg, { authToken, hasTargetUrl });
       return new Response(msg, { status: 400 });
     }
 
-    // 提取目标URL
+    // Hedef URL'yi çıkar
     const authtokenPrefix = `/${authToken}/`;
     let targetUrl = url.pathname.substring(url.pathname.indexOf(authtokenPrefix) + authtokenPrefix.length);
     targetUrl = decodeURIComponent(targetUrl);
 
-    // 验证URL协议 (http/https)
+    // URL protokolünü doğrula (http/https)
     if (!/^https?:\/\//i.test(targetUrl)) {
-      const msg = "Invalid target URL. Protocol (http/https) is required.";
+      const msg = "Geçersiz hedef URL. Protokol (http/https) gereklidir.";
       log(msg, { targetUrl });
       return new Response(msg, { status: 400 });
     }
 
     const dstUrl = targetUrl + url.search;
-    log("目标URL", dstUrl);
+    log("Hedef URL", dstUrl);
     return await nativeFetch(req, dstUrl);
 
   } catch (error) {
-    log("请求处理失败", error);
-    return new Response("Bad Gateway", { status: 502 });
+    log("İstek işleme başarısız oldu", error);
+    return new Response("Kötü Ağ Geçidi", { status: 502 });
   }
 }
 
-// 导出Worker handlers
+// Worker işleyicilerini dışa aktar
 export default { fetch: handleRequest };
 export const onRequest = (ctx) => handleRequest(ctx.request, ctx.env);

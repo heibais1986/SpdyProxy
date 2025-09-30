@@ -2,13 +2,13 @@ import { connect } from 'cloudflare:sockets';
 import { BaseProxy } from './base.js';
 
 /**
- * SOCKS5代理类
- * 使用SOCKS5代理进行连接
+ * SOCKS5 Proxy Sınıfı
+ * Bağlantı için SOCKS5 proxy'sini kullanır
  */
 export class Socks5Proxy extends BaseProxy {
   /**
-   * 构造函数
-   * @param {object} config - 配置对象
+   * Kurucu
+   * @param {object} config - Yapılandırma nesnesi
    */
   constructor(config) {
     super(config);
@@ -16,13 +16,13 @@ export class Socks5Proxy extends BaseProxy {
   }
 
   /**
-   * 连接目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * Hedef sunucuya bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connect(req, dstUrl) {
-    // 检查请求是否为WebSocket请求
+    // İsteğin bir WebSocket isteği olup olmadığını kontrol et
     const upgradeHeader = req.headers.get("Upgrade")?.toLowerCase();
     const isWebSocket = upgradeHeader === "websocket";
     
@@ -34,40 +34,40 @@ export class Socks5Proxy extends BaseProxy {
   }
 
   /**
-   * 连接WebSocket目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * WebSocket hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectWebSocket(req, dstUrl) {
     const targetUrl = new URL(dstUrl);
     
-    // 如果目标URL不支持WebSocket协议，返回错误响应
-    if (!/^wss?:\/\//i.test(dstUrl)) {
+    // Hedef URL WebSocket protokolünü desteklemiyorsa, bir hata yanıtı döndür
+    if (!/^wss?:\/\/i.test(dstUrl)) {
       return new Response("Target does not support WebSocket", { status: 400 });
     }
     
-    // 通过SOCKS5代理连接
+    // SOCKS5 proxy üzerinden bağlan
     const socket = await this.socks5Connect(
-      2, // domain name
+      2, // alan adı
       targetUrl.hostname,
       Number(targetUrl.port) || (targetUrl.protocol === "wss:" ? 443 : 80)
     );
   
-    // 生成WebSocket握手所需的密钥
+    // WebSocket el sıkışması için gereken anahtarı oluştur
     const key = this.generateWebSocketKey();
 
-    // 清理头部信息
+    // Başlık bilgilerini temizle
     const cleanedHeaders = this.filterHeaders(req.headers);
     
-    // 构建握手所需的HTTP头部
+    // El sıkışma için gereken HTTP başlıklarını oluştur
     cleanedHeaders.set('Host', targetUrl.hostname);
     cleanedHeaders.set('Connection', 'Upgrade');
     cleanedHeaders.set('Upgrade', 'websocket');
     cleanedHeaders.set('Sec-WebSocket-Version', '13');
     cleanedHeaders.set('Sec-WebSocket-Key', key);
   
-    // 组装WebSocket握手的HTTP请求数据
+    // WebSocket el sıkışması için HTTP istek verilerini birleştir
     const handshakeReq =
       `GET ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
       Array.from(cleanedHeaders.entries())
@@ -83,7 +83,7 @@ export class Socks5Proxy extends BaseProxy {
     const handshakeResp = await this.readUntilDoubleCRLF(reader);
     this.log("Received handshake response", handshakeResp);
     
-    // 验证握手响应是否表明101 Switching Protocols状态
+    // El sıkışma yanıtının 101 Protokol Değiştirme durumunu gösterip göstermediğini doğrula
     if (
       !handshakeResp.includes("101") ||
       !handshakeResp.includes("Switching Protocols")
@@ -91,44 +91,44 @@ export class Socks5Proxy extends BaseProxy {
       throw new Error("WebSocket handshake failed: " + handshakeResp);
     }
   
-    // 创建内部WebSocketPair
+    // Dahili bir WebSocketPair oluştur
     const webSocketPair = new WebSocketPair();
     const client = webSocketPair[0];
     const server = webSocketPair[1];
     client.accept();
     
-    // 在客户端和远程套接字之间建立双向帧中继
+    // İstemci ve uzak soket arasında çift yönlü bir çerçeve rölesi kur
     this.relayWebSocketFrames(client, socket, writer, reader);
     return new Response(null, { status: 101, webSocket: server });
   }
 
   /**
-   * 连接HTTP目标服务器
-   * @param {Request} req - 请求对象
-   * @param {string} dstUrl - 目标URL
-   * @returns {Promise<Response>} 响应对象
+   * HTTP hedef sunucusuna bağlanır
+   * @param {Request} req - İstek nesnesi
+   * @param {string} dstUrl - Hedef URL
+   * @returns {Promise<Response>} Yanıt nesnesi
    */
   async connectHttp(req, dstUrl) {
     const targetUrl = new URL(dstUrl);
     
-    // 清理头部信息
+    // Başlık bilgilerini temizle
     const cleanedHeaders = this.filterHeaders(req.headers);
     
-    // 对于标准HTTP请求：设置必需的头部（如Host并禁用压缩）
+    // Standart HTTP istekleri için: gerekli başlıkları ayarla (Host gibi ve sıkıştırmayı devre dışı bırak)
     cleanedHeaders.set("Host", targetUrl.hostname);
     cleanedHeaders.set("accept-encoding", "identity");
   
     try {
-      // 通过SOCKS5代理连接
+      // SOCKS5 proxy üzerinden bağlan
       const socket = await this.socks5Connect(
-        2, // domain name
+        2, // alan adı
         targetUrl.hostname,
         Number(targetUrl.port) || (targetUrl.protocol === "https:" ? 443 : 80)
       );
       
       const writer = socket.writable.getWriter();
       
-      // 构建请求行和头部
+      // İstek satırını ve başlıklarını oluştur
       const requestLine =
         `${req.method} ${targetUrl.pathname}${targetUrl.search} HTTP/1.1\r\n` +
         Array.from(cleanedHeaders.entries())
@@ -139,7 +139,7 @@ export class Socks5Proxy extends BaseProxy {
       this.log("Sending request", requestLine);
       await writer.write(this.encoder.encode(requestLine));
     
-      // 如果有请求体，将其转发到目标服务器
+      // Bir istek gövdesi varsa, onu hedef sunucuya ilet
       if (req.body) {
         this.log("Forwarding request body");
         const reader = req.body.getReader();
@@ -150,20 +150,20 @@ export class Socks5Proxy extends BaseProxy {
         }
       }
       
-      // 解析并返回目标服务器的响应
+      // Hedef sunucunun yanıtını ayrıştır ve döndür
       return await this.parseResponse(socket.readable.getReader());
     } catch (error) {
-      // 使用统一的错误处理方法
+      // Birleşik hata işleme yöntemini kullan
       return this.handleError(error, "SOCKS5 connection");
     }
   }
 
   /**
-   * 通过SOCKS5代理连接
-   * @param {number} addressType - 地址类型
-   * @param {string} addressRemote - 远程地址
-   * @param {number} portRemote - 远程端口
-   * @returns {Promise<Socket>} Socket对象
+   * SOCKS5 proxy üzerinden bağlanır
+   * @param {number} addressType - Adres türü
+   * @param {string} addressRemote - Uzak adres
+   * @param {number} portRemote - Uzak bağlantı noktası
+   * @returns {Promise<Socket>} Soket nesnesi
    */
   async socks5Connect(addressType, addressRemote, portRemote) {
     const { username, password, hostname, port } = this.parsedSocks5Address;
@@ -173,7 +173,7 @@ export class Socks5Proxy extends BaseProxy {
       port,
     });
 
-    // Request head format (Worker -> Socks Server):
+    // İstek başlığı formatı (Çalışan -> Socks Sunucusu):
     // +----+----------+----------+
     // |VER | NMETHODS | METHODS  |
     // +----+----------+----------+
@@ -181,9 +181,9 @@ export class Socks5Proxy extends BaseProxy {
     // +----+----------+----------+
 
     // https://en.wikipedia.org/wiki/SOCKS#SOCKS5
-    // For METHODS:
-    // 0x00 NO AUTHENTICATION REQUIRED
-    // 0x02 USERNAME/PASSWORD https://datatracker.ietf.org/doc/html/rfc1929
+    // YÖNTEMLER için:
+    // 0x00 KİMLİK DOĞRULAMASI GEREKLİ DEĞİL
+    // 0x02 KULLANICI ADI/ŞİFRE https://datatracker.ietf.org/doc/html/rfc1929
     const socksGreeting = new Uint8Array([5, 2, 0, 2]);
 
     const writer = socket.writable.getWriter();
@@ -194,7 +194,7 @@ export class Socks5Proxy extends BaseProxy {
     const reader = socket.readable.getReader();
     const encoder = new TextEncoder();
     let res = (await reader.read()).value;
-    // Response format (Socks Server -> Worker):
+    // Yanıt formatı (Socks Sunucusu -> Çalışan):
     // +----+--------+
     // |VER | METHOD |
     // +----+--------+
@@ -209,7 +209,7 @@ export class Socks5Proxy extends BaseProxy {
       throw new Error("no acceptable methods");
     }
 
-    // if return 0x0502
+    // 0x0502 döndürürse
     if (res[1] === 0x02) {
       this.log("socks server needs auth");
       if (!username || !password) {
@@ -237,23 +237,23 @@ export class Socks5Proxy extends BaseProxy {
       }
     }
 
-    // Request data format (Worker -> Socks Server):
+    // İstek veri formatı (Çalışan -> Socks Sunucusu):
     // +----+-----+-------+------+----------+----------+
     // |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
     // +----+-----+-------+------+----------+----------+
     // | 1  |  1  | X'00' |  1   | Variable |    2     |
     // +----+-----+-------+------+----------+----------+
-    // ATYP: address type of following address
-    // 0x01: IPv4 address
-    // 0x03: Domain name
-    // 0x04: IPv6 address
-    // DST.ADDR: desired destination address
-    // DST.PORT: desired destination port in network octet order
+    // ATYP: aşağıdaki adresin adres türü
+    // 0x01: IPv4 adresi
+    // 0x03: Alan adı
+    // 0x04: IPv6 adresi
+    // DST.ADDR: istenen hedef adresi
+    // DST.PORT: ağ bayt sırasında istenen hedef bağlantı noktası
 
-    // addressType
-    // 1--> ipv4  addressLength =4
-    // 2--> domain name
-    // 3--> ipv6  addressLength =16
+    // adresTürü
+    // 1--> ipv4 adresUzunluğu =4
+    // 2--> alan adı
+    // 3--> ipv6 adresUzunluğu =16
     let DSTADDR; // DSTADDR = ATYP + DST.ADDR
     switch (addressType) {
       case 1:
@@ -280,7 +280,7 @@ export class Socks5Proxy extends BaseProxy {
     this.log('sent socks request');
 
     res = (await reader.read()).value;
-    // Response format (Socks Server -> Worker):
+    // Yanıt formatı (Socks Sunucusu -> Çalışan):
     //  +----+-----+-------+------+----------+----------+
     // |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
     // +----+-----+-------+------+----------+----------+
@@ -298,9 +298,9 @@ export class Socks5Proxy extends BaseProxy {
   }
 
   /**
-   * 解析SOCKS5地址
-   * @param {string} address - SOCKS5地址
-   * @returns {object} 解析后的地址信息
+   * SOCKS5 adresini ayrıştırır
+   * @param {string} address - SOCKS5 adresi
+   * @returns {object} Ayrıştırılmış adres bilgileri
    */
   parseSocks5Address(address) {
     let [latter, former] = address.split("@").reverse();
@@ -318,7 +318,7 @@ export class Socks5Proxy extends BaseProxy {
       throw new Error('Invalid SOCKS address format');
     }
     hostname = latters.join(":");
-    const regex = /^\[.*\]$/;
+    const regex = /^.*\]$/;
     if (hostname.includes(":") && !regex.test(hostname)) {
       throw new Error('Invalid SOCKS address format');
     }
